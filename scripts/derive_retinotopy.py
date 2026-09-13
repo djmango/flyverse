@@ -34,7 +34,9 @@ from pathlib import Path
 import numpy as np
 import pyarrow.feather as f
 
-AP = Path("/opt/data/workspaces/skg/flybrain/annotations.feather")
+# Locate the public release tables from this file: <repo>/scripts/derive_retinotopy.py
+ROOT = Path(__file__).resolve().parent.parent.parent
+AP = ROOT / "annotations.feather"
 COLS = ("bodyId", "flywireType", "class", "assignedOlHex1", "assignedOlHex2",
         "somaSide", "rootSide", "somaLocation", "somaNeuromere", "exitNerve")
 # the cell types that make up one optic lobe cartridge

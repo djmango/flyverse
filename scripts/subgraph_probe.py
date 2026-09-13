@@ -11,9 +11,12 @@ from pathlib import Path
 
 import numpy as np
 
-PACK = Path("/opt/data/workspaces/skg/flybrain/official-pack")
-IO = Path("/opt/data/workspaces/skg/flybrain/flyverse/assets/male_cns_v1_neural_io.json")
-TARGETS = Path("/opt/data/workspaces/skg/flybrain/flyverse/data/targets_vnc_sensory.u64")
+# Locate the checkout from this file: <repo>/scripts/subgraph_probe.py
+REPO = Path(__file__).resolve().parent.parent
+ROOT = REPO.parent
+PACK = ROOT / "official-pack"
+IO = REPO / "assets/male_cns_v1_neural_io.json"
+TARGETS = REPO / "data/targets_vnc_sensory.u64"
 
 row_ptr = np.load(PACK / "row_ptr.npy")
 dest = np.load(PACK / "destinations.npy")
@@ -116,5 +119,5 @@ for name, mask in (("A2", a2), ("B3", b3), ("A2∩B3", a2 & b3), ("A2∪B3", a2 
     e = edges_within(mask)
     print(f"{name:8s} neurons {cells:7,d}  edges {e:9,d}  asset {cells * 6 + e * 6:,} B")
 
-np.save("/opt/data/workspaces/skg/flybrain/out/probe_A2.npy", a2)
-np.save("/opt/data/workspaces/skg/flybrain/out/probe_B3.npy", b3)
+np.save(ROOT / "out/probe_A2.npy", a2)
+np.save(ROOT / "out/probe_B3.npy", b3)

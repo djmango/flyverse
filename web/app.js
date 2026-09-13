@@ -21,7 +21,7 @@ const API = '/api';
 // Build stamp: proves which revision a given browser tab is actually running, so a stale
 // cached module can never be confused with a live bug. This runs at module evaluation,
 // before boot(), so it still reports if the render loop later blocks.
-const APP_VER = '20260912f';
+const APP_VER = '20260913a';
 window.__fvBooted = true;
 (function stampBuild() {
   const el = document.getElementById('f-appver');
@@ -86,7 +86,7 @@ const MOTOR_LABELS = [
 ];
 const SENSORY_LABELS = [
   ['odor_l', 'odor L'], ['odor_r', 'odor R'],
-  ['retina_l', 'retina L'], ['retina_r', 'retina R'],
+  ['flow_l', 'flow L'], ['flow_r', 'flow R'],
 ];
 const LEG_IDS = ['lf', 'lm', 'lh', 'rf', 'rm', 'rh'];
 const TRIPOD_A = { lf: 1, rh: 1, lm: 1 };
@@ -541,7 +541,9 @@ function updatePose(t, dt, f) {
   const flapHz = 6 + 9 * amp;
   poseState.wingPhase += dt * Math.PI * 2 * flapHz;
   if (b && typeof b.wing_phase === 'number' && isFinite(b.wing_phase)) {
-    // gently resync toward the server phase (server beats at ~200 Hz, we draw it slowed)
+    // gently resync toward the server's visual stroke phase. The server advances
+    // it at 19 Hz (WINGBEAT_VISUAL_HZ), not the real ~200 Hz wingbeat: the real
+    // rate aliases at display frame rates, so both sides draw it slowed.
     let d = b.wing_phase - poseState.wingPhase;
     d = Math.atan2(Math.sin(d), Math.cos(d));
     poseState.wingPhase += d * 0.12;
@@ -593,12 +595,10 @@ function updatePose(t, dt, f) {
     });
   });
 
-  // abdomen: gentle bend from climb/descent intent and mode
-  const alt = f && f.neural && typeof f.neural.alt_drive === 'number' ? f.neural.alt_drive : 0;
-  const bend = clamp(alt, -1, 1) * 0.16;
+  // abdomen: gentle idle motion. There is no climb/descent-intent channel from
+  // the server, so the old `alt_drive` bend was always zero and has been removed.
   for (let i = 0; i < anim.abdomen.length; i++) {
     const a = anim.abdomen[i];
-    a.rotation.y = bend * (0.5 + i * 0.28);
     a.rotation.x = Math.sin(t * 1.7 + i * 0.6) * 0.012 * (0.4 + amp);
   }
 }
@@ -855,7 +855,6 @@ function applyFrame(f, wallNow) {
   setText('v-active', int(nn.active_neurons));
   setText('v-meanrate', ff(nn.mean_rate_hz, 2) + ' Hz');
   setText('v-tkdrive', ff(nn.takeoff_drive, 3));
-  setText('v-altdrive', ff(nn.alt_drive, 3));
   setText('v-hall', ff(nn.hall, 3));
 
   const ev = f.events || {};

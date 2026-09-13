@@ -21,9 +21,12 @@ import pyarrow as pa
 import pyarrow.compute as pc
 import pyarrow.feather as feather
 
-ROOT = Path("/opt/data/workspaces/skg/flybrain")
+# Locate the checkout from this file: <repo>/prep/prep_inputs.py
+REPO = Path(__file__).resolve().parent.parent
+# The public MaleCNS release tables sit beside the checkout, not inside it.
+ROOT = REPO.parent
 PACK = ROOT / "official-pack"
-OUT = ROOT / "flyverse" / "data"
+OUT = REPO / "data"
 OUT.mkdir(parents=True, exist_ok=True)
 
 ids = np.load(PACK / "neuron_ids.npy")

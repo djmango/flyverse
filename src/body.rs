@@ -13,22 +13,21 @@
 //! a cruise-altitude target, an altitude-tracking pitch law, a stabiliser that
 //! trimmed wing amplitude to hold altitude, a heading-aligned thrust term and a
 //! direct `steer * YAW_GAIN` yaw coupling. All of that is gone. There is no
-//! `alt_target` the body works towards, no stabiliser gain and no yaw gain.
+//! altitude setpoint the body works towards, no stabiliser gain and no yaw gain.
 //!
 //! WHAT IS STILL A SURROGATE
 //! -------------------------
-//! Ground locomotion, the feeding bout and the landing state remain
-//! engineered: leg motor neurons drive a walking speed with a capped
-//! magnitude, and a meal is a timer. They are labelled as such and are the
-//! next candidates for replacement. Wingbeat kinematics and the muscle lag
-//! between motor drive and stroke amplitude are transduction models, not
-//! recovered circuits: the dataset contains no muscle.
+//! Ground locomotion and the landing state remain engineered: leg motor
+//! neurons drive a walking speed with a capped magnitude. They are labelled as
+//! such and are the next candidates for replacement. Wingbeat kinematics and
+//! the muscle lag between motor drive and stroke amplitude are transduction
+//! models, not recovered circuits: the dataset contains no muscle.
 //!
 //! Units: millimetres, seconds, milligrams. Gravity 9810 mm/s^2.
 //!
 //! Reference frame: x forward, y left, z up. Quaternions are body-to-world.
 
-use crate::room::{add, len, scale, sub, Room, V3};
+use crate::room::{add, len, scale, Room, V3};
 use crate::wing;
 
 pub use crate::wing::GRAVITY;
@@ -67,6 +66,10 @@ pub enum Mode {
     Takeoff,
     Cruise,
     Landing,
+    /// Retired, and currently unreachable: the only code that ever assigned it
+    /// (`maybe_feed`) had no call sites and has been deleted. It is kept only
+    /// because other modules (e.g. `analyze::mode_code`) still match on it.
+    /// Removing it is a cross-module follow-up, not a body-local change.
     Feeding,
 }
 
@@ -144,15 +147,6 @@ fn qeuler(q: [f32; 4]) -> (f32, f32, f32) {
     (yaw, pitch, roll)
 }
 
-fn wrap_pi(a: f32) -> f32 {
-    let t = std::f32::consts::TAU;
-    let mut x = (a + std::f32::consts::PI) % t;
-    if x < 0.0 {
-        x += t;
-    }
-    x - std::f32::consts::PI
-}
-
 // -------------------------------------------------------------------- state
 
 pub struct Body {
@@ -180,7 +174,6 @@ pub struct Body {
     pub wing_phase: f32,
     pub gait_phase: f32,
     pub legs_supported: u8,
-    pub takeoff_drive: f32,
     /// Vertical component of the wing force from the last integration, in the
     /// body frame and in the world frame. `wing_lift()` returns the body-frame
     /// value; what actually fights gravity is the world-frame one, and the two
@@ -193,12 +186,9 @@ pub struct Body {
     /// can be attributed to a steady torque rather than guessed at.
     pub tau_aero: [f32; 3],
     pub tau_damp: [f32; 3],
-    /// Retained for the telemetry schema. No longer a target: the body has no
-    /// altitude setpoint, so this only reports where it happens to be.
-    pub alt_drive: f32,
-    pub alt_target: f32,
-    pub feed_timer_ms: f32,
-    pub post_meal_ms: f32,
+    /// Count of feeding bouts. Feeding is retired (see `Mode::Feeding`): nothing
+    /// assigns that mode any more, so this stays at zero. Retained because
+    /// `main.rs` and `analyze` still read it for the telemetry schema.
     pub eats: u32,
     pub takeoffs: u32,
     pub landings: u32,
@@ -207,6 +197,9 @@ pub struct Body {
     label_ms: f32,
     /// Per-axis wall/ceiling contact latch, so a graze counts once.
     pub touching: [bool; 3],
+    /// Retained only because `main.rs` reads it for the telemetry summary. With
+    /// the feeding path deleted nothing writes it any more, so it is constant.
+    /// Removing it is a cross-file follow-up (main.rs is out of scope here).
     pub taste_gain: f32,
 }
 
@@ -231,15 +224,10 @@ impl Body {
             wing_phase: 0.0,
             gait_phase: 0.0,
             legs_supported: 6,
-            takeoff_drive: 0.0,
             fz_body: 0.0,
             fz_world: 0.0,
             tau_aero: [0.0; 3],
             tau_damp: [0.0; 3],
-            alt_drive: 0.0,
-            alt_target: 0.0,
-            feed_timer_ms: 0.0,
-            post_meal_ms: 0.0,
             eats: 0,
             takeoffs: 0,
             landings: 0,
@@ -338,8 +326,7 @@ impl Body {
     /// level; 90 is on its side; 180 is inverted. Measures attitude alone, so
     /// it cannot be confused with where the fly is pointing in the plane.
     pub fn tilt_deg(&self) -> f32 {
-        let up = qrot(self.q, [0.0, 0.0, 1.0]);
-        up[2].clamp(-1.0, 1.0).acos().to_degrees()
+        self.up()[2].clamp(-1.0, 1.0).acos().to_degrees()
     }
 
     /// Weight in mg*mm/s^2.
@@ -348,22 +335,20 @@ impl Body {
     }
 
     /// Advance the body one control step of `dt` seconds from decoded motor
-    /// activity. `dn_drive` is the filtered descending flight drive and
-    /// `land_drive` the landing population rate; both are held for the state
-    /// label and the analyse harness, and neither commands the flight path.
+    /// activity. `_dn_drive` is the filtered descending flight drive and
+    /// `land_drive` the landing population rate; the descending drive no longer
+    /// touches the body at all (the HUD reads it from `World::dn_filter`), and
+    /// neither commands the flight path.
     pub fn update(
         &mut self,
         room: &Room,
         food: V3,
         m: &Motors,
-        dn_drive: f32,
+        _dn_drive: f32,
         land_drive: f32,
         dt: f32,
     ) {
         let dt_ms = dt * 1000.0;
-        self.takeoff_drive = dn_drive;
-        self.alt_drive = 0.0;
-        self.alt_target = self.pos[2];
 
         // 1. Wing motor neurons -> stroke amplitude, through the muscle.
         let a = 1.0 - (-dt / MUSCLE_TAU).exp();
@@ -397,8 +382,9 @@ impl Body {
         self.label_ms = (self.label_ms - dt_ms).max(0.0);
 
         match self.mode {
-            Mode::Ground => self.update_ground(room, m, dt, dt_ms),
-            Mode::Feeding => self.update_feeding(room, m, dt, dt_ms),
+            // `Feeding` is retired and unreachable: the variant is kept only for
+            // the cross-module match in `analyze`, so its body is the ground one.
+            Mode::Ground | Mode::Feeding => self.update_ground(room, m, dt, dt_ms),
             _ => self.update_air(room, m, land_drive, dt),
         }
 
@@ -483,10 +469,27 @@ impl Body {
             self.vel = scale(self.vel, MAX_SPEED / sp);
         }
 
-        // Rotational dynamics. Torque of each wing force about its root:
-        //   tau = r x F, with r = (0, +-WING_DY, WING_DZ).
-        // The lateral offset turns an amplitude difference into roll, and the
+        // Rotational dynamics. Torque of each wing force about the wing root:
+        //   tau = r x F, with r = (0, +-WING_DY, WING_DZ). The longitudinal
+        //   component WING_DX is deliberately left out; see below.
+        // The lateral offset turns an amplitude difference into roll and the
         // vertical offset turns a forward thrust into pitch.
+        //
+        // The longitudinal WING_DX term is deliberately NOT here. Including it
+        // as `-dx * (fl[2]+fr[2])` adds a large constant nose-up moment, about
+        // 0.15x total lift, that is present even at zero tilt where the pitch
+        // torque is otherwise exactly zero. Measured: it regressed the fly from
+        // 1 takeoff per 12 s to 163, cruise 97.2% to 0.5%, and altitude 189.5 mm
+        // to 21.2 mm, i.e. straight back to bouncing on the floor.
+        //
+        // It is not restored until the sign is settled: the constant is -0.15
+        // but its own doc says the wing centre sits *ahead* of the centre of
+        // mass, and in a frame whose x points forward that argues for a
+        // positive value. Getting the sign wrong inverts the moment, and the
+        // magnitude is large enough that either sign dominates the pitch axis.
+        // Resolve the sign from the rig first, then reintroduce it and re-run
+        // the flight test; do not add it on the strength of the cross product
+        // alone.
         //
         // No handedness correction appears here, and that is deliberate. The
         // cross product and the quaternion rotation both follow the right-hand
@@ -613,73 +616,6 @@ impl Body {
         }
 
         let _ = m;
-    }
-
-    /// Feeding. [SURROGATE] A timed bout while the feeding MN9 keeps firing.
-    fn update_feeding(&mut self, room: &Room, m: &Motors, _dt: f32, dt_ms: f32) {
-        let support = room.support_z(self.pos[0], self.pos[1]);
-        self.pos[2] = support;
-        self.vel = [0.0, 0.0, 0.0];
-        self.omega = [0.0, 0.0, 0.0];
-        self.gait_phase = 0.0;
-        self.legs_supported = 6;
-        self.feed_timer_ms += dt_ms;
-        if self.feed_timer_ms > 800.0 && m.mn9 < 0.04 {
-            self.finish_meal();
-        } else if self.feed_timer_ms > 3000.0 {
-            self.finish_meal();
-        }
-    }
-
-    fn finish_meal(&mut self) {
-        self.mode = Mode::Ground;
-        self.feed_timer_ms = 0.0;
-        self.post_meal_ms = 1250.0;
-        self.taste_gain = 0.0;
-    }
-
-    /// Called once per control window with the taste rate at the proboscis.
-    pub fn maybe_feed(&mut self, taste_rate_hz: f32, mn9: f32, _room: &Room, food: V3) {
-        if self.mode != Mode::Ground {
-            return;
-        }
-        let d = len(sub(self.head(), food));
-        if d < 3.0 && taste_rate_hz > 1.0 && mn9 > 0.05 {
-            self.mode = Mode::Feeding;
-            self.eats += 1;
-            self.feed_timer_ms = 0.0;
-        }
-    }
-
-    pub fn tick_post_meal(&mut self, dt_ms: f32) {
-        if self.post_meal_ms > 0.0 {
-            self.post_meal_ms = (self.post_meal_ms - dt_ms).max(0.0);
-        }
-        if self.taste_gain < 1.0 {
-            self.taste_gain = (self.taste_gain + dt_ms / 12000.0).min(1.0);
-        }
-    }
-
-    /// Yaw rate in rad/s, from the body's own rotation rather than a
-    /// difference of Euler angles.
-    pub fn yaw_rate_rad_s(&self) -> f32 {
-        let u = self.up();
-        if u[2].abs() < 0.2 {
-            return self.omega[2];
-        }
-        self.omega[2] * u[2] + self.omega[0] * u[0] * 0.0
-    }
-
-    /// Tilt of the body's up axis from vertical, radians. 0 is level, pi is
-    /// upside down. The single best number for "is it flying or tumbling".
-    pub fn tilt_rad(&self) -> f32 {
-        let u = self.up();
-        u[2].clamp(-1.0, 1.0).acos()
-    }
-
-    /// Deviation of the heading from where it started, wrapped to +-pi.
-    pub fn heading_error(&self) -> f32 {
-        wrap_pi(self.yaw)
     }
 }
 

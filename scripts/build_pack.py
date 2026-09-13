@@ -25,7 +25,9 @@ import pyarrow as pa
 import pyarrow.compute as pc
 import pyarrow.feather as feather
 
-ROOT = Path("/opt/data/workspaces/skg/flybrain")
+# Locate the checkout from this file: <repo>/scripts/build_pack.py
+REPO = Path(__file__).resolve().parent.parent
+ROOT = REPO.parent
 OUT = Path(os.environ.get("FLYVERSE_PACK_OUT", ROOT / "official-pack"))
 
 # Engineering convention for the sign of an edge, taken from the transmitter of

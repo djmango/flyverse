@@ -414,11 +414,19 @@ impl World {
         let sp = self.body.speed();
         let turn = (self.yaw_rate * 26.0).clamp(-1.0, 1.0);
         let fwd = (sp / 300.0).clamp(0.0, 1.0);
-        self.flow_l = (0.5 * fwd + 0.5 * turn.max(0.0)).clamp(0.0, 1.0);
-        self.flow_r = (0.5 * fwd + 0.5 * (-turn).max(0.0)).clamp(0.0, 1.0);
+        let raw_l = (0.5 * fwd + 0.5 * turn.max(0.0)).clamp(0.0, 1.0);
+        let raw_r = (0.5 * fwd + 0.5 * (-turn).max(0.0)).clamp(0.0, 1.0);
+        // Gated by the same `vg` that scales the channel below, so the stored
+        // proxy is what was ACTUALLY delivered, not the phantom that would have
+        // been delivered if the retina were off. When the retina is on (the
+        // default) the proxy is not delivered at all and these store zero. This
+        // mirrors the probe's `optic_flow_proxy_delivered` column: recording the
+        // ungated value would archive a visual drive that never reached the brain.
         let vg = if self.flow_on && !self.retina.on { 1.0 } else { 0.0 };
-        self.d_vis_l.rate_hz = self.flow_l as f64 * 90.0 * vg;
-        self.d_vis_r.rate_hz = self.flow_r as f64 * 90.0 * vg;
+        self.flow_l = raw_l * vg;
+        self.flow_r = raw_r * vg;
+        self.d_vis_l.rate_hz = self.flow_l as f64 * 90.0;
+        self.d_vis_r.rate_hz = self.flow_r as f64 * 90.0;
 
         // The retina proper: one ray per optic lobe column, from the position
         // and attitude the body actually has this window.
@@ -599,6 +607,11 @@ impl World {
                 "yaw": b.yaw,
                 "wing_amp": b.wing_amp,
                 "legs_supported": b.legs_supported,
+                // Visual stroke/gait phases. These advance at WINGBEAT_VISUAL_HZ
+                // (19 Hz), NOT the real 200 Hz wingbeat: the real rate aliases at
+                // display frame rates. The client resyncs its animation to them.
+                "wing_phase": b.wing_phase,
+                "gait_phase": b.gait_phase,
             },
             "food": { "pos": self.food, "dist": d },
             "motors": {
@@ -618,12 +631,16 @@ impl World {
                 "active_neurons": self.lif.active_neurons,
                 "mean_rate_hz": self.rates.rate_hz.iter().sum::<f32>() as f64 / self.conn.n as f64,
                 "takeoff_drive": self.dn_filt,
-                "alt_drive": b.alt_drive,
                 "hall": self.o_sapp.norm(&self.rates),
                 "odor_l": self.odor_l,
                 "odor_r": self.odor_r,
-                "retina_l": self.flow_l,
-                "retina_r": self.flow_r,
+                // The optic-flow proxy drive ACTUALLY delivered to the visual
+                // channels (see `step`): zero whenever the retina is on, because
+                // the retina, not the proxy, is then driving the connectome.
+                // Named for what it is; the old `retina_l`/`retina_r` keys were a
+                // misnomer for this proxy and no retina quantity was ever sent.
+                "flow_l": self.flow_l,
+                "flow_r": self.flow_r,
                 "regions": self.region_bars(),
             },
             "events": {
