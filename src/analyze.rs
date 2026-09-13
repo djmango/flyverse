@@ -22,8 +22,10 @@ mod run;
 mod stats;
 mod summary;
 mod trace;
+mod yaw;
 
 pub use flight::flight_test;
 pub use probe::{rotation_probe, ProbeOptions};
 pub use run::run;
 pub use trace::{Options, Sample};
+pub use yaw::{yaw_probe, YawOptions};

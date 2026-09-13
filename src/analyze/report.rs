@@ -60,18 +60,29 @@ pub(crate) fn write_csv(path: &PathBuf, s: &[Sample]) -> Result<()> {
         f,
         "t,x,y,z,speed,yaw,yaw_rate,roll,pitch,wing_amp,mode,pow_l,pow_r,steer_l,steer_r,\
 walk_l,walk_r,land_l,land_r,mn9,dn02,dn07,sapp,land_dn,dn_filt,odor_l,odor_r,flow_l,flow_r,\
-loom,taste,wall_dist,wall_hits,takeoffs,landings,eats,win_spikes,tot_spikes"
+loom,taste,wall_dist,tau_roll,tau_pitch,tau_yaw,damp_roll,damp_pitch,damp_yaw,wroll,wpitch,\
+wyaw,tilt_l,tilt_r,tilt_deg,fz_body,fz_world,steer_l_hz,steer_r_hz,touch_x,touch_y,touch_z,\
+tau_yaw_tilt,tau_yaw_amp,wall_hits,takeoffs,landings,eats,win_spikes,tot_spikes"
     )?;
     for x in s {
         writeln!(
             f,
             "{:.3},{:.2},{:.2},{:.2},{:.2},{:.4},{:.4},{:.4},{:.4},{:.4},{},{:.4},{:.4},{:.4},{:.4},\
 {:.4},{:.4},{:.4},{:.4},{:.4},{:.4},{:.4},{:.4},{:.4},{:.4},{:.4},{:.4},{:.4},{:.4},\
-{:.4},{:.1},{:.2},{},{},{},{},{},{}",
+{:.4},{:.1},{:.2},{:.2},{:.2},{:.2},{:.2},{:.2},{:.2},{:.4},{:.4},\
+{:.4},{:.4},{:.4},{:.2},{:.2},{:.2},{:.2},{:.2},{:.2},{:.2},{},{},{},\
+{},{},{},{},{},{}",
             x.t, x.x, x.y, x.z, x.speed, x.yaw, x.yaw_rate, x.roll, x.pitch, x.wing_amp, x.mode,
             x.pow_l, x.pow_r, x.steer_l, x.steer_r, x.walk_l, x.walk_r, x.land_l, x.land_r, x.mn9,
             x.dn02, x.dn07, x.sapp, x.land_dn, x.dn_filt, x.odor_l, x.odor_r, x.flow_l, x.flow_r,
-            x.loom, x.taste, x.wall_dist, x.wall_hits, x.takeoffs, x.landings, x.eats,
+            x.loom, x.taste, x.wall_dist,
+            x.tau_aero[0], x.tau_aero[1], x.tau_aero[2],
+            x.tau_damp[0], x.tau_damp[1], x.tau_damp[2],
+            x.wroll, x.wpitch, x.wyaw, x.tilt_l, x.tilt_r, x.tilt_deg,
+            x.fz_body, x.fz_world, x.steer_l_hz, x.steer_r_hz,
+            x.touch[0] as u8, x.touch[1] as u8, x.touch[2] as u8,
+            x.tau_yaw_tilt, x.tau_yaw_amp,
+            x.wall_hits, x.takeoffs, x.landings, x.eats,
             x.win_spikes, x.tot_spikes
         )?;
     }

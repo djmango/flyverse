@@ -123,6 +123,53 @@ pub(crate) fn summarize(
     let alt_v = col(&air, |x| x.z);
     let spd_v = col(&air, |x| x.speed);
 
+    // Yaw attribution.
+    //
+    // The pitch investigation found a *constant* pitching moment that the body
+    // had no way to oppose. Yaw has no gravity term, so a constant yaw torque
+    // legitimately produces constant rotation: the useful question is not
+    // "does it spin" but "is the torque persistently one-signed", and if so,
+    // whether it is a body-model bias or the connectome's own motor output.
+    // Both candidates are measured here so neither has to be assumed.
+    let tau_yaw = col(&air, |x| x.tau_aero[2]);
+    let pos_y = tau_yaw.iter().filter(|v| **v > 0.0).count() as f64 / at;
+    let neg_y = tau_yaw.iter().filter(|v| **v < 0.0).count() as f64 / at;
+    // The same torque split into what the tilt differential commands and what
+    // the amplitude differential commands (see `trace::yaw_torque_split`).
+    let tilt_term = col(&air, |x| x.tau_yaw_tilt);
+    let amp_term = col(&air, |x| x.tau_yaw_amp);
+
+    // Clamp occupancy: a rate pinned at MAX_OMEGA is the numerical guard, not a
+    // measurement, so it is reported separately from the rate itself.
+    const CLAMP_EPS: f32 = 0.999;
+    let clamp_pct = |a: usize| -> f64 {
+        air.iter()
+            .filter(|x| {
+                let w = [x.wroll, x.wpitch, x.wyaw][a];
+                w.abs() >= CLAMP_EPS * crate::body::MAX_OMEGA
+            })
+            .count() as f64
+            / at
+    };
+    let yaw_clamp = air
+        .iter()
+        .filter(|x| x.yaw_rate.abs() >= CLAMP_EPS * crate::body::MAX_OMEGA)
+        .count() as f64
+        / at;
+    let parked = air.iter().filter(|x| x.speed < 10.0).count() as f64 / at;
+    let cornered = air
+        .iter()
+        .filter(|x| x.touch[0] && x.touch[1])
+        .count() as f64
+        / at;
+    let steer_readout_sat = air
+        .iter()
+        .filter(|x| x.steer_l >= 0.999 || x.steer_r >= 0.999)
+        .count() as f64
+        / at;
+    let steer_hz_l = mean(&col(&air, |x| x.steer_l_hz));
+    let steer_hz_r = mean(&col(&air, |x| x.steer_r_hz));
+
     serde_json::json!({
         "config": {
             "seed": o.seed,
@@ -206,6 +253,44 @@ pub(crate) fn summarize(
             "full_circles_airborne": total_turn / std::f64::consts::TAU,
             "net_yaw_change_rad": (last.yaw - first.yaw) as f64,
             "steer_differential_mean_abs": mean(&col(&air, |x| (x.steer_r - x.steer_l).abs())),
+        },
+        // Yaw attribution. Is the continuous turning a constant body-frame
+        // torque (a body-model bias, as pitch was) or the connectome's own
+        // asymmetric motor output (real behaviour the body is executing)?
+        // `frac_tau_yaw_positive` answers the first: a value near 0 or near 1
+        // is a one-signed torque; near 0.5 is a torque that changes sign.
+        "yaw": {
+            "note": "tau_yaw is the whole yaw moment: tau_aero[2] = WING_DY * (fr[0] - fl[0]). \
+                     Split into the component commanded by the stroke-plane tilt difference and \
+                     the component commanded by the wing-amplitude difference.",
+            "mean_tau_yaw": mean(&tau_yaw),
+            "mean_abs_tau_yaw": mean(&col(&air, |x| x.tau_aero[2].abs())),
+            "tau_yaw_tilt_component_mean": mean(&tilt_term),
+            "tau_yaw_amp_component_mean": mean(&amp_term),
+            "frac_tau_yaw_positive": pos_y,
+            "frac_tau_yaw_negative": neg_y,
+            "mean_body_yaw_rate_rad_s": mean(&col(&air, |x| x.wyaw)),
+            "mean_abs_body_yaw_rate_rad_s": mean(&col(&air, |x| x.wyaw.abs())),
+            "mean_world_yaw_rate_rad_s": mean(&col(&air, |x| x.yaw_rate)),
+            "mean_tau_damp_yaw": mean(&col(&air, |x| x.tau_damp[2])),
+            "mean_tilt_l_rad": mean(&col(&air, |x| x.tilt_l)),
+            "mean_tilt_r_rad": mean(&col(&air, |x| x.tilt_r)),
+            "mean_tilt_differential_rad": mean(&col(&air, |x| x.tilt_r - x.tilt_l)),
+            // A rate sitting on MAX_OMEGA is the numerical guard, not a
+            // measurement, so clamp occupancy is reported per axis.
+            "clamp_pct_of_airborne": {
+                "roll": 100.0 * clamp_pct(0),
+                "pitch": 100.0 * clamp_pct(1),
+                "yaw_body": 100.0 * clamp_pct(2),
+                "yaw_world": 100.0 * yaw_clamp,
+            },
+            "max_omega_clamp_rad_s": crate::body::MAX_OMEGA,
+            "pct_parked_speed_lt_10mm_s": 100.0 * parked,
+            "pct_touching_two_walls": 100.0 * cornered,
+            "steering_pool_hz_left": steer_hz_l,
+            "steering_pool_hz_right": steer_hz_r,
+            "steering_pool_hz_difference": steer_hz_l - steer_hz_r,
+            "pct_steering_readout_saturated": 100.0 * steer_readout_sat,
         },
         "loom_response": {
             "note": "Direct test of whether the room reaches the brain: the looming-wall \
