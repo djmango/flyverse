@@ -14,6 +14,7 @@ use crate::httpd;
 use crate::lif::Lif;
 use crate::pack::Connectome;
 use crate::room::{self, Room, V3};
+use crate::vision::{self, Retina};
 use anyhow::{Context, Result};
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};
@@ -118,6 +119,10 @@ pub struct World {
     /// is how the perturbation probe tells a connectome response apart from a
     /// response to the surrogate.
     pub flow_on: bool,
+    /// The retinotopic visual front end: one ray per optic lobe column, driving
+    /// that column's photoreceptors with the light it finds. FLYVERSE_NO_RETINA=1
+    /// falls back to the optic-flow proxy alone.
+    pub retina: Retina,
     /// Model indices that fired during the last control window.
     pub window_spikes: Vec<u32>,
 
@@ -229,6 +234,19 @@ impl World {
         body.pos = [-220.0, -150.0, 0.0];
         body.set_yaw(0.6);
 
+        // The visual front end. Missing asset is a hard error for the same
+        // reason a missing sense organ is: a retina that silently sees nothing
+        // looks exactly like a connectome that cannot see.
+        let retina = Retina::load(&conn, &Retina::asset_path(), seed)?;
+        eprintln!(
+            "[flyverse] retina: {} columns, {} photoreceptors, {} ({}..{} Hz)",
+            retina.columns(),
+            retina.photons,
+            if retina.on { "sampling the room" } else { "silenced by FLYVERSE_NO_RETINA" },
+            vision::BASE_HZ as u32,
+            (vision::BASE_HZ + vision::GAIN_HZ) as u32,
+        );
+
         Ok(World {
             o_pow_l: Out::new(&groups, "motor_flight_power_left", 90.0),
             o_pow_r: Out::new(&groups, "motor_flight_power_right", 90.0),
@@ -270,6 +288,7 @@ impl World {
             mech_groups: mech,
             haltere_on: std::env::var("FLYVERSE_NO_HALTERE").is_err(),
             flow_on: std::env::var("FLYVERSE_NO_FLOW").is_err(),
+            retina,
             conn,
             lif,
             groups,
@@ -321,8 +340,12 @@ impl World {
             s.extend_from_slice(self.d_hal_r.events());
             s.extend_from_slice(self.d_legtac_l.events());
             s.extend_from_slice(self.d_legtac_r.events());
+            // The retina's drives are per column, so they are pushed as a block
+            // rather than one line each.
+            self.retina.push_events(&mut s);
             self.lif.step(&self.conn, &s);
             self.window_spikes.extend_from_slice(&self.lif.fired);
+            self.retina.observe(&self.lif.fired);
             for &i in &self.lif.fired {
                 let g = self.groups.neuron_group[i as usize];
                 self.rates.observe(g);
@@ -383,15 +406,23 @@ impl World {
         self.d_taste.rate_hz = if on_food { 160.0 } else { 0.0 };
 
         // Optic flow: an engineered proxy for retinal slip, translation plus
-        // rotation, scaled so a fast cruise saturates the channel.
+        // rotation, scaled so a fast cruise saturates the channel. This is now
+        // only a fallback. While the retina is on it drives the photoreceptors
+        // and the connectome has to derive motion for itself, so leaving this
+        // running as well would hand the lobula plate the answer it is being
+        // asked to compute and mask whatever the retina contributed.
         let sp = self.body.speed();
         let turn = (self.yaw_rate * 26.0).clamp(-1.0, 1.0);
         let fwd = (sp / 300.0).clamp(0.0, 1.0);
         self.flow_l = (0.5 * fwd + 0.5 * turn.max(0.0)).clamp(0.0, 1.0);
         self.flow_r = (0.5 * fwd + 0.5 * (-turn).max(0.0)).clamp(0.0, 1.0);
-        let vg = if self.flow_on { 1.0 } else { 0.0 };
+        let vg = if self.flow_on && !self.retina.on { 1.0 } else { 0.0 };
         self.d_vis_l.rate_hz = self.flow_l as f64 * 90.0 * vg;
         self.d_vis_r.rate_hz = self.flow_r as f64 * 90.0 * vg;
+
+        // The retina proper: one ray per optic lobe column, from the position
+        // and attitude the body actually has this window.
+        self.retina.update(self.body.pos, self.body.quat(), &self.room);
 
         // Loom: how fast the nearest wall ahead is filling the field of view.
         let loom = self.loom();

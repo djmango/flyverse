@@ -10,6 +10,7 @@ mod npy;
 mod pack;
 mod room;
 mod sim;
+mod vision;
 mod wing;
 
 use anyhow::{bail, Context, Result};

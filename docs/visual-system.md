@@ -165,28 +165,47 @@ one synapse, motion cells at two to three, is the real pathway depth.
 
 ## What is still surrogate
 
-The optic-flow *value* handed to the brain is still the engineered
-`0.5 * speed/300 + 0.5 * turn`, not a rendered scene. Note where that lands:
-the drive targets `visual_motion_left` and `visual_motion_right`, which resolve
-to the 21 left and 23 right **real lobula plate tangential cells** (H2, HSE,
-HSN, HSS, HST, VS, VST1, VST2, VSm). So the target set is real and the
-computation is not.
+**Nothing in the visual drive.** Since this document was first written, option 2
+below is implemented, so the section is now a record of what it replaced.
 
-Two ways forward, in increasing faithfulness:
+`src/vision.rs` casts one ray per column into the room, from the position and
+attitude the body actually has that window, and drives that column's
+photoreceptors at `30 + 150 * luminance` Hz with the light it finds. 1,462
+columns reach 5,895 photoreceptors. Measured on a 12 s run: **97.06 Hz** mean
+photoreceptor rate at mean luminance 0.51.
 
-1. Drive each of the 44 tangential cells from a real optic-flow field: compute
-   image motion from the body's velocity and angular velocity against the room
-   geometry, sampled along the 1,771 now-known gaze directions, and project it
-   onto each cell's preferred direction. This replaces the formula but still
-   injects at the tangential cells.
-2. Drive the **photoreceptors** themselves, one per column, with the luminance
-   of a textured world along that column's gaze direction, and let the
-   connectome compute motion. This is the faithful option, and the pack fix is
-   what makes it possible: before it, those neurons had nowhere to send a
-   spike.
+The connectome now has to work out that the image is moving. T4/T5 and the
+lobula plate are *not* driven; they are reached from the columns through the
+connectome, which is the whole point. Two consequences worth stating plainly:
 
-Option 2 is the target. It needs a textured room and a per-column raycast, and
-it puts the entire motion pathway back inside the connectome where it belongs.
+- The engineered `0.5 * speed/300 + 0.5 * turn` proxy is now a **fallback only**.
+  It runs when the retina is off (`FLYVERSE_NO_RETINA=1`), and is deliberately
+  shut off when the retina is on. Leaving it running would hand the lobula plate
+  the answer it is being asked to compute, and mask whatever the retina
+  contributed. `summary.json` records which of the two was in use under
+  `vision.optic_flow_proxy`.
+- The room's texture is *procedural and passive*: two-octave value noise fixed in
+  the world at roughly 3 mm and 1.1 mm, with a different seed per wall so a
+  corner is not invisible. It is arbitrary in the same sense as the odour plume's
+  shape, and it encodes nothing about how the fly should behave. What matters is
+  that it is a function of world position only, which is asserted by a test:
+  otherwise the retina would be seeing its own motion rather than the room's.
+
+### What the retina replaced
+
+The optic-flow value used to be the engineered `0.5 * speed/300 + 0.5 * turn`,
+and it landed on the **real** 44 lobula plate tangential cells
+(`visual_motion_left`/`visual_motion_right` resolve to H2, HSE, HSN, HSS, HST,
+VS, VST1, VST2, VSm). So the target set was always real and only the computation
+was not. The pack fix above is what made replacing it possible: before it, a
+photoreceptor had nowhere to send a spike.
+
+### Not yet done
+
+The photoreceptor model is a rate code with no adaptation, no contrast gain
+control, and no temporal filtering. Fly photoreceptors adapt over tens of
+milliseconds and their lamina targets are band-pass; neither is modelled here.
+The drive is a plausible firing rate, not a measured one.
 
 ## Reproducing
 

@@ -155,7 +155,8 @@ Paths default to the working directory and can be overridden:
 | `FLYVERSE_VNC_TARGETS` | `data/targets_vnc_sensory.u64` | reference stimulus set |
 | `FLYVERSE_IO_JSON` | `assets/male_cns_v1_neural_io.json` | neuron group annotations |
 | `FLYVERSE_NO_HALTERE` | unset | `1` computes the haltere model but never delivers its spikes |
-| `FLYVERSE_NO_FLOW` | unset | `1` silences the optic-flow proxy channel |
+| `FLYVERSE_NO_FLOW` | unset | `1` silences the optic-flow proxy channel (it is already a fallback: the proxy only runs when the retina is off) |
+| `FLYVERSE_NO_RETINA` | unset | `1` silences the raycast retina and falls back to the optic-flow proxy |
 
 ## Commands
 
@@ -254,8 +255,10 @@ work, not a current property.
 | `vnc_sensory` stimulus | replayed | 6,370 IDs at fixed Poisson 150 Hz, not body-generated |
 | Odour field | surrogate | finite-core exponential plume, `room.rs::odor` |
 | Retina → lamina → lobula plate | real, restored | 6,091 photoreceptors reach 23,707 lamina/medulla neurons in 1 synapse and all 44 lobula plate tangential cells in 2-3 |
-| Retinotopy | real, derived | `assignedOlHex1/2` tiles the optic lobe into 892 columns, gaze directions from a sphere fit to real soma coordinates; 5,895 photoreceptors attached to their cartridge by connectivity (`scripts/derive_retinotopy.py`) |
-| Optic flow | surrogate | `0.5 * speed/300 + 0.5 * turn`, no rendered scene. The *targets* are real (H2/HSE/HSN/HSS/HST/VS/VST1/VST2/VSm); the motion formula is not |
+| Retinotopy | real, derived | 892 columns per eye; gaze directions from a sphere fit to real soma coordinates; 5,895 photoreceptors attached to their cartridge by connectivity (`scripts/derive_retinotopy.py`) |
+| Retinal image | real, raycast | one ray per column into the room drives that column's photoreceptors at 30-180 Hz, 1,462 drivable columns (`src/vision.rs`); measured 97 Hz mean at luminance 0.51 |
+| Room texture | procedural, passive | two-octave value noise fixed in the world at ~3 mm and ~1.1 mm. Encodes nothing about behaviour |
+| Optic flow | **real, emergent** | the connectome derives motion from the photoreceptors' own temporal correlations. `0.5*speed/300 + 0.5*turn` survives only as the fallback when the retina is off |
 | Loom | surrogate, bilateral | time-to-contact with the nearest wall face, same value both sides |
 | Wingbeat | surrogate | visual phase 19 Hz against a real ~200 Hz stroke |
 | Aerodynamics | real, measured | quasi-steady blade-element mean over the fly's own measured wing planform (`src/wing.rs`) |

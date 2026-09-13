@@ -397,6 +397,14 @@ fn summarize(
             "edges": w.conn.m,
             "stimulus_targets": w.vnc_targets,
         },
+        "vision": {
+            "retina_on": w.retina.on,
+            "columns": w.retina.columns(),
+            "photoreceptors": w.retina.photons,
+            "photoreceptor_hz": w.retina.photo_hz(DT_MS as f64),
+            "mean_luminance": w.retina.mean_lum(),
+            "optic_flow_proxy": w.flow_on && !w.retina.on,
+        },
         "mode_percent": {
             "GROUND": mode_pct(0),
             "TAKEOFF": mode_pct(1),

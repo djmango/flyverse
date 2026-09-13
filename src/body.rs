@@ -115,7 +115,7 @@ fn qnorm(q: [f32; 4]) -> [f32; 4] {
 }
 
 /// Rotate a body-frame vector into the world frame.
-fn qrot(q: [f32; 4], v: V3) -> V3 {
+pub(crate) fn qrot(q: [f32; 4], v: V3) -> V3 {
     // v' = v + 2 * q_vec x (q_vec x v + qw * v)
     let (w, x, y, z) = (q[0], q[1], q[2], q[3]);
     let tx = 2.0 * (y * v[2] - z * v[1]);
