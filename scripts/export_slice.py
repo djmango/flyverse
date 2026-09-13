@@ -39,6 +39,9 @@ index_of = {int(b): i for i, b in enumerate(ids)}
 t = feather.read_table(ROOT / "annotations.feather")
 sup_col = t.column("superclass").cast("string").to_pylist()
 type_col = t.column("type").cast("string").to_pylist()
+class_col = t.column("class").cast("string").to_pylist()
+sub_col = t.column("subclass").cast("string").to_pylist()
+side_col = t.column("rootSide").cast("string").to_pylist()
 body_col = t.column("bodyId").cast("int64").to_pylist()
 row_of_body = {b: i for i, b in enumerate(body_col)}
 positions = np.fromfile(ROOT / "flyverse/data/soma_positions.f32", dtype=np.float32).reshape(-1, 3)
@@ -101,6 +104,19 @@ def local_group(body_ids):
     return np.sort(g[g >= 0]).astype(np.uint32)
 
 
+PROPRIOCEPTIVE_CLASSES = {"mechanosensory_proprioceptive"}
+PROPRIOCEPTIVE_SUBCLASSES = {"chordotonal organ", "hair plate", "campaniform sensilla"}
+
+
+def by_body(pred):
+    return local_group([int(b) for b, *rest in zip(body_col, sup_col, class_col, sub_col, side_col)
+                        if pred(*rest)])
+
+
+def side_rows(want: str) -> list[int]:
+    return [int(b) for b, sd in zip(body_col, side_col) if sd == want]
+
+
 groups: dict[str, np.ndarray] = {
     "motor_walking": local_group(
         io["groups"]["motor_walking_left"]["root_ids"] + io["groups"]["motor_walking_right"]["root_ids"]
@@ -111,6 +127,44 @@ groups: dict[str, np.ndarray] = {
     "vnc_sensory": local_group([int(b) for b, s in zip(body_col, sup_col) if s == "vnc_sensory"]),
     "descending": local_group([int(b) for b, s in zip(body_col, sup_col) if s == "descending_neuron"]),
     "ascending": local_group([int(b) for b, s in zip(body_col, sup_col) if s == "ascending_neuron"]),
+    # Legs for the closed loop: the two walking motor pools are already labelled
+    # left and right by the dataset.
+    "motor_walking_left": local_group(io["groups"]["motor_walking_left"]["root_ids"]),
+    "motor_walking_right": local_group(io["groups"]["motor_walking_right"]["root_ids"]),
+    # Proprioception: chordotonal organs, hair plates and campaniform sensilla
+    # report joint angle and its rate. Split by side so the loop can feed a leg
+    # its own movement.
+    "proprioceptive": by_body(
+        lambda sup, cls, sub, sd: cls in PROPRIOCEPTIVE_CLASSES or sub in PROPRIOCEPTIVE_SUBCLASSES
+    ),
+    "proprioceptive_left": local_group(
+        [int(b) for b, cls, sub, sd in zip(body_col, class_col, sub_col, side_col)
+         if (cls in PROPRIOCEPTIVE_CLASSES or sub in PROPRIOCEPTIVE_SUBCLASSES) and sd == "L"]
+    ),
+    "proprioceptive_right": local_group(
+        [int(b) for b, cls, sub, sd in zip(body_col, class_col, sub_col, side_col)
+         if (cls in PROPRIOCEPTIVE_CLASSES or sub in PROPRIOCEPTIVE_SUBCLASSES) and sd == "R"]
+    ),
+    # Every afferent that reaches a walking motor neuron, by side.
+    "sensory_left": local_group(
+        [int(b) for b, sup, sd in zip(body_col, sup_col, side_col) if sup == "vnc_sensory" and sd == "L"]
+    ),
+    "sensory_right": local_group(
+        [int(b) for b, sup, sd in zip(body_col, sup_col, side_col) if sup == "vnc_sensory" and sd == "R"]
+    ),
+    # Contact sense (bristles, campaniform hairs, taste hairs): the afferents of
+    # each side that are not proprioceptive, so the closed loop can send a foot
+    # strike back without also sending the joint's own report twice.
+    "sensory_touch_left": local_group(
+        [int(b) for b, sup, cls, sub, sd in zip(body_col, sup_col, class_col, sub_col, side_col)
+         if sup == "vnc_sensory" and sd == "L"
+         and not (cls in PROPRIOCEPTIVE_CLASSES or sub in PROPRIOCEPTIVE_SUBCLASSES)]
+    ),
+    "sensory_touch_right": local_group(
+        [int(b) for b, sup, cls, sub, sd in zip(body_col, sup_col, class_col, sub_col, side_col)
+         if sup == "vnc_sensory" and sd == "R"
+         and not (cls in PROPRIOCEPTIVE_CLASSES or sub in PROPRIOCEPTIVE_SUBCLASSES)]
+    ),
 }
 groups = {k: v for k, v in groups.items() if len(v)}
 
@@ -173,6 +227,13 @@ manifest = {
     },
     "composition_superclass": dict(comp.most_common()),
     "composition_type_top20": dict(types.most_common(20)),
+    "afferent_subclass": dict(
+        Counter(
+            sub_col[row_of_body[int(ids[g])]] or "(none)"
+            for g in sel
+            if sup_col[row_of_body[int(ids[g])]] == "vnc_sensory"
+        ).most_common()
+    ),
     "groups": {k: int(len(v)) for k, v in groups.items()},
     "superclass_legend": legend,
     "bytes_per_edge": 6,

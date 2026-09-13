@@ -142,3 +142,64 @@ fn wasm_engine_hashes_are_stable() {
     println!("stable hash {:#018x}", hashes[0]);
     assert_eq!(hashes[0], hashes[1]);
 }
+
+#[test]
+fn closed_loop_is_deterministic_and_changes_the_neurons() {
+    // The leg model sits in the same crate as the integrator, so it gets the same
+    // treatment: run it twice, demand the same answer, and demand that closing
+    // the loop actually reaches the neurons.
+    //
+    // The indices below are arbitrary. This test is about the loop arithmetic and
+    // its determinism, not about which cells are proprioceptive: the real group
+    // split is checked in the browser against the shipped asset.
+    let dir = slice_dir();
+    let conn = Connectome::load(&dir).expect("load slice pack");
+    let npy = Npy::open(&dir.join("signed_counts.npy")).expect("open signed_counts");
+    let signed = npy
+        .i16(&dir.join("signed_counts.npy"))
+        .expect("read signed_counts");
+    let targets = targets();
+
+    let run = |closed: bool| -> (u64, u64, u32, u32) {
+        let mut e = Engine::new(conn.n, conn.m);
+        e.load_csr(conn.row_ptr.clone(), conn.destinations.clone(), signed);
+        e.set_stim(targets.clone(), RATE_HZ as f32, SEED);
+        // Driven cells stand in for the motor pool, so the legs have something
+        // to follow; the rest of the driven set stands in for the sense organs.
+        let motors = &targets[..11];
+        let prop_l = targets[11..31].to_vec();
+        let prop_r = targets[31..51].to_vec();
+        let touch_l = targets[51..71].to_vec();
+        let touch_r = targets[71..91].to_vec();
+        e.set_legs(
+            prop_l,
+            prop_r,
+            touch_l,
+            touch_r,
+            motors.to_vec(),
+            motors.to_vec(),
+        );
+        e.legs.on = closed;
+        for _ in 0..STEPS {
+            e.run_one();
+        }
+        (e.hash, e.total_spikes, e.legs.steps_l + e.legs.steps_r, e.legs.sent_prop as u32)
+    };
+
+    let (hash_a, spikes_a, steps_a, sent_a) = run(true);
+    let (hash_b, spikes_b, steps_b, sent_b) = run(true);
+    let (hash_open, _, _, sent_open) = run(false);
+
+    assert_eq!(hash_a, hash_b, "the closed loop must be reproducible");
+    assert_eq!(spikes_a, spikes_b);
+    assert_eq!(steps_a, steps_b);
+    assert_eq!(sent_a, sent_b);
+    assert!(sent_a > 0, "a closed loop that sends nothing is not closed");
+    assert_eq!(sent_open, 0, "an open loop must send nothing back");
+    assert!(steps_a > 0, "the legs never stepped, so the read-out is dead");
+    assert_ne!(hash_a, hash_open, "closing the loop changed nothing in the slice");
+    println!(
+        "loop closed: {} spikes, {} steps, {} afferent events, hash {:#018x}",
+        spikes_a, steps_a, sent_a, hash_a
+    );
+}
