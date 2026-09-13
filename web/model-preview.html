@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>flyverse · model preview</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #171d29; overflow: hidden; }
+  canvas { display: block; width: 100vw; height: 100vh; }
+  #hud {
+    position: fixed; left: 12px; bottom: 10px; color: #9fb0cc;
+    font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+    background: rgba(10,13,20,.7); padding: 6px 10px; border-radius: 6px;
+  }
+</style>
+<script type="importmap">
+{
+  "imports": {
+    "three": "./vendor/three.module.js",
+    "three/addons/": "./vendor/"
+  }
+}
+</script>
+</head>
+<body>
+<div id="hud">flyverse · cartoon fly model preview · drag to orbit · shift-drag to spin</div>
+<script type="module">
+// Standalone preview of the same cartoon model the app uses, at a size where
+// it can actually be judged. The app draws this body 2.3 mm long in a 600 mm
+// room; here the camera sits close enough to read the silhouette, the eyes and
+// the wing iridescence. Nothing here is used by the simulation.
+import * as THREE from 'three';
+import { buildCuteFly, applyLegScale, poseFlightLegs } from './fly_cute.js';
+
+const canvas = document.createElement('canvas');
+document.body.appendChild(canvas);
+
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.05;
+
+const scene = new THREE.Scene();
+function grad(stops) {
+  const cv = document.createElement('canvas');
+  cv.width = 4; cv.height = 256;
+  const g = cv.getContext('2d');
+  const grd = g.createLinearGradient(0, 0, 0, 256);
+  for (const [at, col] of stops) grd.addColorStop(at, col);
+  g.fillStyle = grd; g.fillRect(0, 0, 4, 256);
+  const t = new THREE.CanvasTexture(cv);
+  if (THREE.SRGBColorSpace) t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+scene.background = grad([[0, '#212a3d'], [0.55, '#161c29'], [1, '#0b0e15']]);
+
+const camera = new THREE.PerspectiveCamera(34, 1, 0.05, 100);
+
+const ambient = new THREE.AmbientLight(0xfff0e2, 0.4);
+scene.add(ambient);
+const hemi = new THREE.HemisphereLight(0xd6e6ff, 0x3a2410, 1.0);
+scene.add(hemi);
+const key = new THREE.DirectionalLight(0xfff2dc, 1.35);
+key.position.set(-3, -2, 4);
+scene.add(key);
+const fill = new THREE.DirectionalLight(0xa8c8ff, 0.55);
+fill.position.set(3.5, 3, 1.5);
+scene.add(fill);
+const rim = new THREE.DirectionalLight(0xffd9a0, 0.8);
+rim.position.set(1.5, 3.5, -3);
+scene.add(rim);
+
+const fly = new THREE.Group();
+scene.add(fly);
+
+const cute = buildCuteFly(THREE, { detailed: true });
+
+// Rebuild the same node hierarchy the app uses: every part is parented onto
+// its rig node, and the node positions (from rig.json, in mm) place the parts
+// relative to each other. Skipping this collapses the whole body onto the
+// origin, so the preview must read the rig too.
+const rig = await (await fetch('./assets/rig.json')).json();
+const nodes = {};
+for (const b of rig.bodies) {
+  const o = new THREE.Object3D();
+  o.name = b.name;
+  o.position.set(b.pos[0], b.pos[1], b.pos[2]);
+  nodes[b.short] = o;
+}
+for (const b of rig.bodies) {
+  const o = nodes[b.short];
+  const p = b.parent ? nodes[b.parent.replace('fly/', '')] : null;
+  if (p) p.add(o); else fly.add(o);
+}
+
+// Match the app: shorten the leg chains so the stubby cartoon segments line up
+// with the joints.
+const shortened = applyLegScale(nodes);
+let attached = 0;
+for (const [short, obj] of Object.entries(cute.parts)) {
+  if (nodes[short]) { nodes[short].add(obj); attached++; }
+}
+console.log('[preview] parts=' + attached + '/' + rig.bodies.length +
+  ' geos=' + cute.stats.geometries);
+
+// Pose the legs the way app.js does in flight. Without this the preview shows
+// the raw rig, whose leg segments chain straight down and stick out below the
+// body like a bundle of rods.
+const posed = poseFlightLegs(nodes);
+
+// Recentre on the body so the orbit camera frames it, and report the real size.
+fly.updateMatrixWorld(true);
+const box = new THREE.Box3().setFromObject(fly);
+const bodySize = box.getSize(new THREE.Vector3());
+const centre = box.getCenter(new THREE.Vector3());
+console.log('[preview] body size mm: ' +
+  bodySize.x.toFixed(2) + ' x ' + bodySize.y.toFixed(2) + ' x ' + bodySize.z.toFixed(2));
+fly.position.sub(centre);
+
+// A soft floor so the wings and underside have something to read against.
+// Z-up world, so the floor is a plane in XY.
+const floor = new THREE.Mesh(
+  new THREE.CircleGeometry(6, 48),
+  new THREE.MeshStandardMaterial({ color: 0x1b2130, roughness: 0.95 }));
+floor.position.z = -bodySize.z * 0.75;
+scene.add(floor);
+
+let spin = 0, yaw = 0.6, pitch = 0.22, dist = bodySize.x * 3.2, auto = true;
+
+// The rig is Z-up (the thorax sits at z = 2.1 mm and the feet at z = 0), so the
+// orbit camera has to be Z-up too. With the three.js default Y-up the whole fly
+// renders on its side, with the wings pointing up and down the screen.
+camera.up.set(0, 0, 1);
+
+function size() {
+  const w = window.innerWidth, h = window.innerHeight;
+  renderer.setSize(w, h, false);
+  camera.aspect = w / Math.max(1, h);
+  camera.updateProjectionMatrix();
+}
+window.addEventListener('resize', size);
+size();
+
+canvas.addEventListener('pointerdown', (e) => {
+  let px = e.clientX, py = e.clientY;
+  auto = false;
+  const move = (ev) => {
+    if (ev.shiftKey) spin += (ev.clientX - px) * 0.01;
+    else {
+      yaw -= (ev.clientX - px) * 0.008;
+      pitch = Math.max(-1.3, Math.min(1.3, pitch + (ev.clientY - py) * 0.006));
+    }
+    px = ev.clientX; py = ev.clientY;
+  };
+  const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); };
+  window.addEventListener('pointermove', move);
+  window.addEventListener('pointerup', up);
+});
+
+const clock = new THREE.Clock();
+// Debug hook: lets an external client (CDP, a test script) read real world
+// coordinates out of the preview instead of eyeballing a screenshot. pose()
+// stops the turntable so a measurement is repeatable.
+window.__fvPreview = {
+  THREE, scene, camera, fly, nodes, bodySize,
+  bounds: () => new THREE.Box3().setFromObject(fly),
+  pose: (y, p, s) => { auto = false; yaw = y; pitch = p; spin = s; return { yaw, pitch, spin }; },
+};
+
+function frame() {
+  const dt = Math.min(clock.getDelta(), 0.05);
+  if (auto) spin += dt * 0.6;
+  const t = clock.elapsedTime;
+  // Turntable spin must be about the world-up axis, which is Z for this rig.
+  // Spinning about Y instead rolls the fly onto its back and the legs appear
+  // to point at the sky.
+  fly.rotation.z = spin;
+  fly.rotation.x = 0.10 * Math.sin(t * 0.7);
+  fly.rotation.y = 0.07 * Math.sin(t * 0.53 + 1);
+  // Gentle bob, so the render does not look like a statue.
+  fly.position.z = 0.05 * Math.sin(t * 1.3);
+
+  // Z-up orbit: yaw sweeps the XY plane, pitch lifts along +Z.
+  camera.position.set(
+    Math.cos(pitch) * Math.cos(yaw) * dist,
+    Math.cos(pitch) * Math.sin(yaw) * dist,
+    Math.sin(pitch) * dist);
+  camera.lookAt(0, 0, 0);
+  renderer.render(scene, camera);
+  requestAnimationFrame(frame);
+}
+frame();
+</script>
+</body>
+</html>

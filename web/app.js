@@ -13,6 +13,7 @@
 
 import * as THREE from 'three';
 import { STLLoader } from './vendor/STLLoader.js';
+import { buildCuteFly, applyLegScale, FLIGHT_POSE } from './fly_cute.js';
 
 const MESH_UNIT_TO_MM = 1000.0;
 const API = '/api';
@@ -20,7 +21,7 @@ const API = '/api';
 // Build stamp: proves which revision a given browser tab is actually running, so a stale
 // cached module can never be confused with a live bug. This runs at module evaluation,
 // before boot(), so it still reports if the render loop later blocks.
-const APP_VER = '20260912b';
+const APP_VER = '20260912f';
 window.__fvBooted = true;
 (function stampBuild() {
   const el = document.getElementById('f-appver');
@@ -141,21 +142,48 @@ function sizeView() {
 }
 
 // ---------------------------------------------------------------- lighting
-const ambient = new THREE.AmbientLight(0xdff0ff, 0.55);
+// A warm studio mood rather than the old black void. The previous setup was a
+// near-black background lit by a cold blue key, which made the pale model read
+// like a specimen in a freezer.
+function gradientBackground(stops) {
+  const cv = document.createElement('canvas');
+  cv.width = 4; cv.height = 256;
+  const g = cv.getContext('2d');
+  const grd = g.createLinearGradient(0, 0, 0, 256);
+  for (const [at, col] of stops) grd.addColorStop(at, col);
+  g.fillStyle = grd; g.fillRect(0, 0, 4, 256);
+  const t = new THREE.CanvasTexture(cv);
+  if (THREE.SRGBColorSpace) t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+
+scene.background = gradientBackground([[0, '#212a3d'], [0.55, '#161c29'], [1, '#0b0e15']]);
+scene.fog = new THREE.Fog(0x161c29, 1100, 3000);
+
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.05;
+
+const ambient = new THREE.AmbientLight(0xfff0e2, 0.35);
 scene.add(ambient);
-const hemi = new THREE.HemisphereLight(0xbfe6ff, 0x2a1d10, 0.9);
+const hemi = new THREE.HemisphereLight(0xd6e6ff, 0x3a2410, 1.0);
 scene.add(hemi);
 
-const keyLight = new THREE.DirectionalLight(0xffffff, 1.5);
+const keyLight = new THREE.DirectionalLight(0xfff2dc, 1.35);
 keyLight.position.set(-260, -180, 420);
 scene.add(keyLight);
 
-const fillLight = new THREE.DirectionalLight(0x9fc6ff, 0.5);
+const fillLight = new THREE.DirectionalLight(0xa8c8ff, 0.55);
 fillLight.position.set(300, 260, 120);
 scene.add(fillLight);
 
+// Warm rim from behind: separates the body from the floor and adds the glow
+// that makes the cartoon body look alive.
+const rimLight = new THREE.DirectionalLight(0xffd9a0, 0.7);
+rimLight.position.set(140, 330, -280);
+scene.add(rimLight);
+
 // a soft light travelling with the fly so it reads against the walls
-const flyLight = new THREE.PointLight(0x8fd8ff, 900, 160, 2);
+const flyLight = new THREE.PointLight(0xffe6c4, 1100, 200, 2);
 scene.add(flyLight);
 
 // ---------------------------------------------------------------- room
@@ -427,10 +455,36 @@ async function buildRig() {
     if (parent) parent.add(o); else flyRig.add(o);
   });
 
-  // 2. meshes
+  // 2. visual body. Default is the stylised cartoon fly (web/fly_cute.js);
+  //    ?model=anatomical swaps the NeuroMechFly meshes back in.
+  const MODEL = (new URLSearchParams(location.search).get('model') || 'cute').toLowerCase();
+  let cute = null;
+  if (MODEL !== 'anatomical') {
+    // Shorten the leg chains before the meshes are built, so the stubby
+    // cartoon segments line up with the joints.
+    const shortened = applyLegScale(bodyObjects);
+    cute = buildCuteFly(THREE, { detailed: !LITE });
+    let attached = 0;
+    bodies.forEach(function (b) {
+      const p = cute.parts[b.short];
+      if (p && bodyObjects[b.short]) { bodyObjects[b.short].add(p); attached++; }
+    });
+    console.log('[flyverse] model=cute parts=' + attached + '/' + bodies.length +
+      ' geos=' + cute.stats.geometries + ' legsShortened=' + shortened);
+    if (attached === 0) {
+      console.warn('[flyverse] cute model matched no rig nodes, using anatomical meshes');
+      cute = null;
+    }
+    document.documentElement.dataset.model = cute ? 'cute' : 'anatomical';
+  } else {
+    document.documentElement.dataset.model = 'anatomical';
+  }
+
+  // 3. meshes
   const jobs = [];
   bodies.forEach(function (b) {
     const short = b.short;
+    if (cute) return;                       // cartoon body already covers this node
     let file = b.mesh ? b.mesh : null;
     let mirror = false;
     if (!file) {
@@ -524,16 +578,16 @@ function updatePose(t, dt, f) {
     const seg = leg.seg;
     if (seg.coxa) {
       seg.coxa.rotation.y = targetSwing;
-      seg.coxa.rotation.x = targetLiftX + tuck * leg.side * 0.30;
+      seg.coxa.rotation.x = targetLiftX + tuck * leg.side * FLIGHT_POSE.coxa;
     }
     if (seg.trochanterfemur) {
-      seg.trochanterfemur.rotation.x = leg.side * (lift * 0.38 - 0.06) * walkness + tuck * leg.side * -0.75;
+      seg.trochanterfemur.rotation.x = leg.side * (lift * 0.38 - 0.06) * walkness + tuck * leg.side * FLIGHT_POSE.femur;
       seg.trochanterfemur.rotation.y = -sw * 0.12 * walkness;
     }
-    if (seg.tibia) seg.tibia.rotation.x = leg.side * (0.30 - lift * 0.34) * walkness + tuck * leg.side * 1.15;
+    if (seg.tibia) seg.tibia.rotation.x = leg.side * (0.30 - lift * 0.34) * walkness + tuck * leg.side * FLIGHT_POSE.tibia;
     ['tarsus1', 'tarsus2', 'tarsus3', 'tarsus4', 'tarsus5'].forEach(function (k, i) {
       if (!seg[k]) return;
-      const curl = grounded ? (0.10 - lift * 0.16) * (1 - i * 0.08) : -0.30;
+      const curl = grounded ? (0.10 - lift * 0.16) * (1 - i * 0.08) : FLIGHT_POSE.tarsus;
       seg[k].rotation.x = leg.side * curl * (grounded ? walkness : 1);
       seg[k].rotation.y = grounded ? sw * 0.05 : 0;
     });
