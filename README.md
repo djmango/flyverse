@@ -107,11 +107,30 @@ saturated. A clean test needs the fly released mid-room.
 
 The haltere-on and haltere-off columns differ, and they differ in the direction a
 working stabiliser would move them: fewer wall contacts, less turning, a steadier
-altitude. That is suggestive and it is **not** proof. The system is chaotic, so two
-runs differing in any input will diverge, and that divergence alone could produce
-differences of this size. A real reflex needs a perturbation test that holds
-everything else fixed, which has not been run. See
-[`docs/embodiment.md`](docs/embodiment.md).
+altitude. **That difference is not evidence of anything.** The system is chaotic,
+so two runs differing in any input diverge, and that divergence alone produces
+differences of this size. The perturbation test that could have settled it has
+now been run, and it came back negative:
+
+> The body is given an angular velocity it did not generate, with both signs, and
+> the steering motor response is averaged separately by sign. Across five
+> haltere-connected runs the sign-conditioned steering signature is
+> **+0.00044 (t = 0.05)**, flipping sign between seeds and not scaling with
+> amplitude. The probe bounds any steering response to an imposed 25 rad/s yaw at
+> about ±0.02, against a standing steering differential near −0.09.
+
+So there is no support for a haltere-mediated stabilising reflex here, and there
+is an upper bound on how large one could be. Full method, controls, and numbers in
+[`docs/haltere-probe.md`](docs/haltere-probe.md); the accounting of what is real
+and what is surrogate is in [`docs/embodiment.md`](docs/embodiment.md).
+
+Reproduce it:
+
+```bash
+./target/release/flyverse haltere-probe --seed 7 --out runs/haltere-probe/s7
+FLYVERSE_NO_FLOW=1 ./target/release/flyverse haltere-probe --seed 7 --out runs/haltere-probe/nf
+scripts/probe_table.sh runs/haltere-probe/*.json
+```
 
 ## Quick start
 
@@ -135,6 +154,8 @@ Paths default to the working directory and can be overridden:
 | `FLYVERSE_PACK` | `official-pack` | connectome pack directory |
 | `FLYVERSE_VNC_TARGETS` | `data/targets_vnc_sensory.u64` | reference stimulus set |
 | `FLYVERSE_IO_JSON` | `assets/male_cns_v1_neural_io.json` | neuron group annotations |
+| `FLYVERSE_NO_HALTERE` | unset | `1` computes the haltere model but never delivers its spikes |
+| `FLYVERSE_NO_FLOW` | unset | `1` silences the optic-flow proxy channel |
 
 ## Commands
 
@@ -142,6 +163,7 @@ Paths default to the working directory and can be overridden:
 |---|---|
 | `serve` | live simulation + browser view + HTTP/SSE API |
 | `analyze` | headless behaviour run: `trace.csv`, `summary.json`, `report.html` |
+| `haltere-probe` | imposed-rotation perturbation test of the haltere channel |
 | `probe` | quick headless sanity read-out of the closed loop |
 | `bench` | engine throughput benchmark (steps/s, realtime factor, phase breakdown) |
 | `census` | dump pack contents and dataset manifest |
@@ -251,9 +273,11 @@ work, not a current property.
 - The flight is not emergent in the strong sense. Nothing tells the fly to hold
   altitude or to be stable, but "it stays up" is a weaker claim than "the
   connectome knows how to fly", and only the weaker claim is supported.
-- Whether the haltere afferents do anything functional is **not established**. The
-  on/off runs differ, but the system is chaotic, so divergence alone could explain
-  it. No perturbation test has been run.
+- The haltere afferents are wired and driven, but the perturbation probe finds
+  **no measurable stabilising response** in the wing motor neurons. See
+  [`docs/haltere-probe.md`](docs/haltere-probe.md). The probe's sensitivity bounds
+  any such response at about ±0.02 of the steer differential; a smaller reflex is
+  not excluded, only unmeasured.
 - `WING_DZ`, the wing root's height above the centre of mass, is an estimate at
   0.20 mm and it sets the pitching moment; the pitch behaviour is sensitive to it.
 - Wing inertia is not modelled, so the large instantaneous reaction torques within

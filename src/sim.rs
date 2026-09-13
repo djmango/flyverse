@@ -112,6 +112,12 @@ pub struct World {
     /// control condition for asking whether the connectome does anything with
     /// the rotation signal it is given.
     pub haltere_on: bool,
+    /// Whether the optic-flow channel is delivered. FLYVERSE_NO_FLOW=1 silences
+    /// it. Unlike the haltere channel this one is an engineered proxy, and it
+    /// responds to rotation immediately through its turn term, so silencing it
+    /// is how the perturbation probe tells a connectome response apart from a
+    /// response to the surrogate.
+    pub flow_on: bool,
     /// Model indices that fired during the last control window.
     pub window_spikes: Vec<u32>,
 
@@ -263,6 +269,7 @@ impl World {
             vnc_targets,
             mech_groups: mech,
             haltere_on: std::env::var("FLYVERSE_NO_HALTERE").is_err(),
+            flow_on: std::env::var("FLYVERSE_NO_FLOW").is_err(),
             conn,
             lif,
             groups,
@@ -273,6 +280,24 @@ impl World {
             food,
             step: 0,
         })
+    }
+
+    /// Impose an angular velocity on the body. This is the perturbation probe's
+    /// hammer: the body is given a rotation it did not generate, and the question
+    /// is whether the network drives the wings to oppose it. It changes only the
+    /// body's state, never the stimulus, so any motor response has to travel
+    /// through the connectome.
+    pub fn inject_rotation(&mut self, axis: usize, magnitude: f32) {
+        if axis < 3 {
+            self.body.omega[axis] += magnitude;
+        }
+    }
+
+    /// Haltere afferent rates the network is currently being driven with, in Hz.
+    /// Read back so a probe can confirm the perturbation actually reached the
+    /// sense organ rather than being silently clipped.
+    pub fn haltere_rates(&self) -> (f32, f32) {
+        (self.body.haltere_l, self.body.haltere_r)
     }
 
     /// Advance one 2 ms control window: sense, step the connectome, read out,
@@ -364,8 +389,9 @@ impl World {
         let fwd = (sp / 300.0).clamp(0.0, 1.0);
         self.flow_l = (0.5 * fwd + 0.5 * turn.max(0.0)).clamp(0.0, 1.0);
         self.flow_r = (0.5 * fwd + 0.5 * (-turn).max(0.0)).clamp(0.0, 1.0);
-        self.d_vis_l.rate_hz = self.flow_l as f64 * 90.0;
-        self.d_vis_r.rate_hz = self.flow_r as f64 * 90.0;
+        let vg = if self.flow_on { 1.0 } else { 0.0 };
+        self.d_vis_l.rate_hz = self.flow_l as f64 * 90.0 * vg;
+        self.d_vis_r.rate_hz = self.flow_r as f64 * 90.0 * vg;
 
         // Loom: how fast the nearest wall ahead is filling the field of view.
         let loom = self.loom();

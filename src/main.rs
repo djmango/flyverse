@@ -41,6 +41,7 @@ fn usage() -> ! {
          \x20 verify  --pack DIR --stim FILE --out FILE [--steps N]\n\
          \x20 census  --pack DIR\n\
          \x20 analyze --seconds N [--seed S] [--every N] [--out DIR]\n\
+         \x20 haltere-probe [--seed S] [--trials N] [--amplitude R] [--out FILE]\n\
          \x20 serve   [--pack DIR] [--port N] [--seconds N] [--rate HZ] [--seed S] [--targets FILE]\n"
     );
     std::process::exit(2)
@@ -266,6 +267,27 @@ fn main() -> Result<()> {
                 out: PathBuf::from(args.get("out").unwrap_or("runs/analyze")),
             };
             analyze::run(&pack_path, &o)
+        }
+        "haltere-probe" => {
+            // Imposed-rotation probe: does the network drive the wings to oppose
+            // a rotation it did not generate? Sign-averaged, so chaos cancels.
+            let o = analyze::Options {
+                seconds: 0.0,
+                seed: args.u64("seed", 7),
+                sample_every: 1,
+                out: PathBuf::from(args.get("out").unwrap_or("runs/haltere-probe")),
+            };
+            let p = analyze::ProbeOptions {
+                warmup_s: args.f64("warmup", 10.0),
+                trials: args.u64("trials", 60) as u32,
+                interval_s: args.f64("interval", 0.5),
+                response_ms: args.f64("response", 200.0),
+                amplitude: args
+                    .get("amplitude")
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or(25.0),
+            };
+            analyze::rotation_probe(&pack_path, &o, &p)
         }
         "probe" => {
             // Headless closed loop: is the fly actually moving, and is anything

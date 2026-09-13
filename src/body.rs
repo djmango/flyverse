@@ -714,6 +714,52 @@ mod tests {
         );
     }
 
+    /// THE sign convention for the perturbation probe, established by running
+    /// the body rather than by reading the torque code.
+    ///
+    /// A flipped sign here would invert the probe's conclusion completely: it
+    /// would turn a measured stabilising response into a measured destabilising
+    /// one. The two runs differ only in the steering motor neurons. Same body,
+    /// same wing amplitudes, same timestep, same instant.
+    ///
+    /// A positive steer differential puts more forward thrust on the left wing
+    /// (see `update`: `tilt_l` grows with `+diff`, `tilt_r` shrinks), and yaw
+    /// torque is `WING_DY * (fr[0] - fl[0])`, so it must push the yaw rate down.
+    /// Therefore opposing a positive yaw perturbation needs a positive
+    /// differential.
+    #[test]
+    fn positive_steer_differential_drives_yaw_rate_negative() {
+        fn yaw_rate_after(diff: f32) -> f32 {
+            let mut b = Body::new();
+            b.pos = [0.0, 0.0, 200.0];
+            b.mode = Mode::Cruise;
+            let m = Motors {
+                flight_power_l: 0.9,
+                flight_power_r: 0.9,
+                flight_steer_l: 0.5 - 0.5 * diff,
+                flight_steer_r: 0.5 + 0.5 * diff,
+                ..Default::default()
+            };
+            for _ in 0..300 {
+                b.update(&crate::room::ROOM, [0.0, 0.0, 0.0], &m, 0.0, 0.0, 0.002);
+            }
+            b.omega[2]
+        }
+        let zero = yaw_rate_after(0.0);
+        let positive = yaw_rate_after(0.2);
+        let negative = yaw_rate_after(-0.2);
+        assert!(
+            positive < zero,
+            "a positive steer differential gave yaw rate {positive:.4}, \
+             which is not below the neutral {zero:.4}"
+        );
+        assert!(
+            negative > zero,
+            "a negative steer differential gave yaw rate {negative:.4}, \
+             which is not above the neutral {zero:.4}"
+        );
+    }
+
     #[test]
     fn aerodynamic_damping_slows_a_spinning_body() {
         // The wings' rotational damping is the only thing standing between the

@@ -105,10 +105,21 @@ climb away, avoid walls, or reach the food.
 
 The haltere-on and haltere-off runs differ, and they differ in the direction a
 working stabiliser would move them: fewer wall hits, less turning, a steadier
-altitude. That is suggestive and it is not proof. This system is chaotic, so two
-runs that differ in any input diverge, and the divergence alone would produce
-differences of this size. Establishing a real reflex needs a perturbation test
-that holds everything else fixed, which has not been run.
+altitude. That difference is **not** evidence of anything. This system is
+chaotic, so two runs that differ in any input diverge, and the divergence alone
+produces differences of this size.
+
+The perturbation test that could have settled it has been run, and it is
+negative. Give the body an angular velocity it did not generate, both signs,
+average the steering motor response separately by sign so that chaos cancels and
+a reflex survives, and the result over five haltere-connected runs is
+**+0.00044 with t = 0.05**, with the sign flipping between seeds and no scaling
+with stimulus amplitude. The engineered optic-flow channel is not the
+explanation either: silencing it leaves the same non-result. The probe bounds any
+steering response to an imposed 25 rad/s yaw at roughly ±0.02 against a standing
+steering differential near −0.09, so this is an upper bound rather than a proof
+of absence. Method, controls, and every run in
+[`haltere-probe.md`](haltere-probe.md).
 
 The honest summary of the flight is that it is *not* emergent flight. The fly
 holds itself up and moves about, which the previous controller also achieved by
