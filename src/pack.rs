@@ -148,7 +148,7 @@ impl Connectome {
             } else if c < 0 {
                 inh += 1;
             }
-            contacts += c;
+            contacts += c.abs();
         }
         Census { neurons: self.n, edges: self.m, excitatory_edges: exc, inhibitory_edges: inh, contact_sum: contacts }
     }

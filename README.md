@@ -1,7 +1,7 @@
 # FlyVerse
 
 A native Rust simulation of the Janelia FlyEM **MaleCNS v1.0** connectome — 166,700
-neurons, 24,469,412 signed synapses — driving an embodied fly around a virtual room,
+neurons, 24,559,135 signed synapses — driving an embodied fly around a virtual room,
 streamed live to a browser over a small HTTP API.
 
 ![The fly in the virtual room](docs/room-cam.png)
@@ -13,7 +13,7 @@ more than any other property of the code, so it is stated up front rather than b
 
 **Real, taken from the dataset and its own dynamics:**
 
-- The connectome graph: 166,700 neurons, 24,469,412 signed edges (14,745,137
+- The connectome graph: 166,700 neurons, 24,559,135 signed edges (14,745,137
   excitatory, 9,724,275 inhibitory), compiled from the public FlyEM MaleCNS v1.0
   release (CC BY 4.0). Loaded whole. No pruning, no sampling, no synthetic neurons.
 - Spike dynamics: leaky integrate-and-fire at `DT_MS = 0.1` ms, with spikes
@@ -246,14 +246,16 @@ work, not a current property.
 
 | Layer | Status | Detail |
 |---|---|---|
-| Connectome graph | real | FlyEM MaleCNS v1.0, 166,700 neurons / 24,469,412 signed edges, CC BY 4.0 |
+| Connectome graph | real | FlyEM MaleCNS v1.0, 166,700 neurons / 24,559,135 signed edges, CC BY 4.0 |
 | Neuron dynamics | real | LIF at 0.1 ms over the true adjacency (`src/lif.rs`) |
 | Motor / descending read-outs | real, measured | counted from spikes in named groups |
 | Group annotations | real | `assets/male_cns_v1_neural_io.json` |
 | Soma positions in the 3D view | real, partial | 139,662 of 166,700 placed; 27,038 have no soma in the source |
 | `vnc_sensory` stimulus | replayed | 6,370 IDs at fixed Poisson 150 Hz, not body-generated |
 | Odour field | surrogate | finite-core exponential plume, `room.rs::odor` |
-| Optic flow | surrogate | `0.5 * speed/300 + 0.5 * turn`, no rendered scene |
+| Retina → lamina → lobula plate | real, restored | 6,091 photoreceptors reach 23,707 lamina/medulla neurons in 1 synapse and all 44 lobula plate tangential cells in 2-3 |
+| Retinotopy | real, derived | `assignedOlHex1/2` tiles the optic lobe into 892 columns; gaze directions from a sphere fit to real soma coordinates (`scripts/derive_retinotopy.py`) |
+| Optic flow | surrogate | `0.5 * speed/300 + 0.5 * turn`, no rendered scene. The *targets* are real (H2/HSE/HSN/HSS/HST/VS/VST1/VST2/VSm); the motion formula is not |
 | Loom | surrogate, bilateral | time-to-contact with the nearest wall face, same value both sides |
 | Wingbeat | surrogate | visual phase 19 Hz against a real ~200 Hz stroke |
 | Aerodynamics | real, measured | quasi-steady blade-element mean over the fly's own measured wing planform (`src/wing.rs`) |
