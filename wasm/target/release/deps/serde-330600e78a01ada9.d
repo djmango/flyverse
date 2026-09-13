@@ -1,0 +1,14 @@
+/var/lib/hermes/data/workspaces/skg/flybrain/flyverse/wasm/target/release/deps/serde-330600e78a01ada9.d: /opt/data/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/lib.rs /opt/data/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/integer128.rs /opt/data/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/private/mod.rs /opt/data/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/private/de.rs /opt/data/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/private/ser.rs /var/lib/hermes/data/workspaces/skg/flybrain/flyverse/wasm/target/release/build/serde-9c2fefde852f42e8/out/private.rs
+
+/var/lib/hermes/data/workspaces/skg/flybrain/flyverse/wasm/target/release/deps/libserde-330600e78a01ada9.rlib: /opt/data/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/lib.rs /opt/data/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/integer128.rs /opt/data/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/private/mod.rs /opt/data/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/private/de.rs /opt/data/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/private/ser.rs /var/lib/hermes/data/workspaces/skg/flybrain/flyverse/wasm/target/release/build/serde-9c2fefde852f42e8/out/private.rs
+
+/var/lib/hermes/data/workspaces/skg/flybrain/flyverse/wasm/target/release/deps/libserde-330600e78a01ada9.rmeta: /opt/data/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/lib.rs /opt/data/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/integer128.rs /opt/data/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/private/mod.rs /opt/data/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/private/de.rs /opt/data/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/private/ser.rs /var/lib/hermes/data/workspaces/skg/flybrain/flyverse/wasm/target/release/build/serde-9c2fefde852f42e8/out/private.rs
+
+/opt/data/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/lib.rs:
+/opt/data/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/integer128.rs:
+/opt/data/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/private/mod.rs:
+/opt/data/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/private/de.rs:
+/opt/data/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/private/ser.rs:
+/var/lib/hermes/data/workspaces/skg/flybrain/flyverse/wasm/target/release/build/serde-9c2fefde852f42e8/out/private.rs:
+
+# env-dep:OUT_DIR=/var/lib/hermes/data/workspaces/skg/flybrain/flyverse/wasm/target/release/build/serde-9c2fefde852f42e8/out

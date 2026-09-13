@@ -1,0 +1,25 @@
+[package]
+name = "fly-lif-wasm"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+description = "The FlyVerse LIF engine, compiled to WebAssembly for the lesson"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+# No dependencies on purpose: the module is a bare wasm32-unknown-unknown
+# cdylib with a C ABI, so the browser needs no wasm-bindgen glue.
+[dependencies]
+
+# Used only by tests/parity.rs, which runs the native engine on the same slice
+# and compares spike output. Never built for wasm32 (dev-dependencies are
+# excluded from non-test builds).
+[dev-dependencies]
+flyverse = { path = ".." }
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
