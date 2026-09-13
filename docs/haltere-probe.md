@@ -12,6 +12,36 @@ This document describes the probe that was built to answer the question
 properly, states in advance what would count as evidence and what would count as
 failure, and reports what the probe measured.
 
+## Status: the results below are superseded (read this first)
+
+Every result recorded in this document was collected on the **blind**
+connectome -- the pack in which a missing histamine sign had deleted all 491,144
+retinal output synapses (`8b4add8`). Those runs are not comparable with anything
+built on the corrected pack and are kept only as the record of the original
+measurement.
+
+The probe was re-run on the corrected pack with the real retina in the loop.
+Results are in `docs/probe-results/v2/`. The answer to the question in the first
+line is **still no**, and the re-run also establishes the noise floor this
+design actually has (see below), which the original write-up did not.
+
+## The noise floor, which the original write-up understated
+
+The null control perturbs with amplitude 0. Earlier this was reported as a clean
+`0.0000, t = 0.00`. That was **axis-selective and wrong as a general claim**: the
+archived `docs/probe-results/null.json` had a yaw difference of `0.00001`, but
+its *roll* difference was `0.00221`, and `nf-null.json` had a roll difference of
+`0.01786` at `t = 1.86`.
+
+With amplitude 0 the two sign groups are the same condition, so any difference
+between them is sampling: the groups are different trials, at different points in
+the run, so they sample different flight states. That difference is the floor.
+
+Measured on the corrected pack, the null reaches `t = 2.32` on one channel
+(lift/weight, yaw). **A |t| of about 2.3 is therefore achievable with no
+perturbation at all**, and nothing at or below that level is evidence of
+anything in this design.
+
 ## The measurement
 
 The fly's body is given an angular velocity it did not generate:

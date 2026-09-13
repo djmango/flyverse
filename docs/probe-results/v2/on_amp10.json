@@ -1,0 +1,82 @@
+{
+  "amplitude_rad_s": 10.0,
+  "axes": {
+    "roll": {
+      "lift / weight": {
+        "difference": -0.004456625064214403,
+        "minus_mean": 1.638968464612961,
+        "minus_sem": 0.005379525943549467,
+        "plus_mean": 1.6345118395487466,
+        "plus_sem": 0.004130512050115048,
+        "welch_t": 0.6570904520435642
+      },
+      "power differential (R-L)": {
+        "difference": -0.0010392539103825887,
+        "minus_mean": -1.2058814366657418e-6,
+        "minus_sem": 0.0010513653336227543,
+        "plus_mean": -0.0010404597918192546,
+        "plus_sem": 0.0019301720280322143,
+        "welch_t": 0.4728312312168288
+      },
+      "steer differential (R-L)": {
+        "difference": -0.004662040114402757,
+        "minus_mean": -0.09307941198348998,
+        "minus_sem": 0.01137708614893135,
+        "plus_mean": -0.09774145209789274,
+        "plus_sem": 0.009462526476281605,
+        "welch_t": 0.31504766333939405
+      },
+      "yaw rate rad/s": {
+        "difference": 0.16478157539168992,
+        "minus_mean": 3.188485024775068,
+        "minus_sem": 0.4226215873859305,
+        "plus_mean": 3.3532666001667577,
+        "plus_sem": 0.3394644635039447,
+        "welch_t": 0.30398307460367874
+      }
+    },
+    "yaw": {
+      "lift / weight": {
+        "difference": 0.006276218652724985,
+        "minus_mean": 1.6352345374425254,
+        "minus_sem": 0.0034329292457903325,
+        "plus_mean": 1.6415107560952504,
+        "plus_sem": 0.003589745171434189,
+        "welch_t": 1.2635786534778974
+      },
+      "power differential (R-L)": {
+        "difference": 0.0009110768636067702,
+        "minus_mean": 0.0007139327923456829,
+        "minus_sem": 0.0014136786497694492,
+        "plus_mean": 0.0016250096559524531,
+        "plus_sem": 0.001976216187801163,
+        "welch_t": 0.37495993822442797
+      },
+      "steer differential (R-L)": {
+        "difference": -0.006023768544197061,
+        "minus_mean": -0.085228408853213,
+        "minus_sem": 0.00996396232552714,
+        "plus_mean": -0.09125217739741007,
+        "plus_sem": 0.0092484598294883,
+        "welch_t": 0.4430984098511688
+      },
+      "yaw rate rad/s": {
+        "difference": 0.6781728205184141,
+        "minus_mean": 2.7932818152507144,
+        "minus_sem": 0.3123860120409683,
+        "plus_mean": 3.4714546357691285,
+        "plus_sem": 0.33856665248700146,
+        "welch_t": 1.4721599654857878
+      }
+    }
+  },
+  "haltere_connected": true,
+  "optic_flow_proxy_delivered": false,
+  "response_ms": 200.0,
+  "retina_columns": 1462,
+  "retina_on": true,
+  "retina_photoreceptors": 5895,
+  "seed": 7,
+  "trials_total": 60,
+  "warmup_s": 10.0
+}
