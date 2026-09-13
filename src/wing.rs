@@ -169,6 +169,35 @@ pub fn wing_force_vector(stroke_amp: f32, freq_hz: f32, airspeed: f32, tilt: f32
     [f * st, 0.0, f * ct]
 }
 
+/// Sweep the stroke-plane tilt and print the pitching moment it produces.
+///
+/// `tau_aero[1] = WING_DZ * (fl[0] + fr[0])`, and `fl[0] + fr[0]` is the total
+/// forward thrust, so this asks a single question: can the stroke plane produce
+/// zero pitching moment while still producing forward thrust? If the torque
+/// changes sign across the sweep the handle exists and level flight is a
+/// control problem. If it keeps one sign for every tilt that yields forward
+/// thrust, the body cannot be level while flying forward, and the defect is in
+/// the body model.
+pub fn torque_sweep(stroke_amp: f32, airspeed: f32) {
+    println!("stroke amplitude {:.2}, airspeed {:.0} mm/s", stroke_amp, airspeed);
+    println!("  tilt deg   fwd thrust   lift      pitch torque");
+    let mut deg = -60.0f32;
+    while deg <= 60.0 {
+        let fl = wing_force_vector(stroke_amp, WINGBEAT_HZ, airspeed, deg.to_radians());
+        let fr = fl;
+        let thrust = fl[0] + fr[0];
+        let lift = fl[2] + fr[2];
+        println!(
+            "  {:>+8.1}   {:>+10.1}   {:>+9.1}   {:>+12.1}",
+            deg,
+            thrust,
+            lift,
+            WING_DZ * thrust
+        );
+        deg += 10.0;
+    }
+}
+
 /// Rotational damping from the flapping wings, as a torque per unit angular
 /// rate in each axis, in mg*mm^2/s.
 ///
