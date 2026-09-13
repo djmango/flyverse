@@ -7,7 +7,9 @@
 use anyhow::{bail, Context, Result};
 use std::path::{Path, PathBuf};
 
-pub const DEFAULT_SOMA_PATH: &str = "/opt/data/workspaces/skg/flybrain/flyverse/data/soma_positions.f32";
+/// Default soma point cloud, relative to the working directory so a checkout
+/// works without editing paths. Override with `FLYVERSE_SOMA`.
+pub const DEFAULT_SOMA_PATH: &str = "data/soma_positions.f32";
 
 pub struct Somas {
     pub bytes: Vec<u8>,
@@ -28,6 +30,8 @@ impl Somas {
     }
 
     pub fn path() -> PathBuf {
-        PathBuf::from(DEFAULT_SOMA_PATH)
+        std::env::var("FLYVERSE_SOMA")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| PathBuf::from(DEFAULT_SOMA_PATH))
     }
 }

@@ -24,9 +24,11 @@ from pathlib import Path
 import numpy as np
 import pyarrow.feather as feather
 
-ROOT = Path("/opt/data/workspaces/skg/flybrain")
+# Locate the checkout from this file: <repo>/scripts/export_slice.py
+REPO = Path(__file__).resolve().parent.parent
+ROOT = REPO.parent
 PACK = ROOT / "official-pack"
-OUT = Path("/opt/data/workspaces/skg/flybrain/flyverse/build")
+OUT = REPO / "build"
 OUT.mkdir(parents=True, exist_ok=True)
 
 row_ptr = np.load(PACK / "row_ptr.npy")
@@ -44,9 +46,9 @@ sub_col = t.column("subclass").cast("string").to_pylist()
 side_col = t.column("rootSide").cast("string").to_pylist()
 body_col = t.column("bodyId").cast("int64").to_pylist()
 row_of_body = {b: i for i, b in enumerate(body_col)}
-positions = np.fromfile(ROOT / "flyverse/data/soma_positions.f32", dtype=np.float32).reshape(-1, 3)
+positions = np.fromfile(REPO / "data/soma_positions.f32", dtype=np.float32).reshape(-1, 3)
 
-io = json.loads((ROOT / "flyverse/assets/male_cns_v1_neural_io.json").read_text())
+io = json.loads((REPO / "assets/male_cns_v1_neural_io.json").read_text())
 
 
 def idx_of(body_ids):

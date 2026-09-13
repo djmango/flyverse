@@ -241,7 +241,9 @@ where
 }
 
 pub fn static_root() -> PathBuf {
-    PathBuf::from("/opt/data/workspaces/skg/flybrain/flyverse/web")
+    std::env::var("FLYVERSE_WEB")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| PathBuf::from("web"))
 }
 
 pub fn not_found(stream: &mut TcpStream) -> Result<()> {

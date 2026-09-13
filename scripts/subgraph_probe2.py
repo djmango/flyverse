@@ -13,7 +13,9 @@ from pathlib import Path
 import numpy as np
 import pyarrow.feather as feather
 
-ROOT = Path("/opt/data/workspaces/skg/flybrain")
+# Locate the checkout from this file: <repo>/scripts/subgraph_probe2.py
+REPO = Path(__file__).resolve().parent.parent
+ROOT = REPO.parent
 PACK = ROOT / "official-pack"
 
 row_ptr = np.load(PACK / "row_ptr.npy")
@@ -62,7 +64,7 @@ def downstream(seed, hops):
     return seen
 
 
-targets_all = np.fromfile(ROOT / "flyverse/data/targets_vnc_sensory.u64", dtype=np.uint64).astype(np.int64)
+targets_all = np.fromfile(REPO / "data/targets_vnc_sensory.u64", dtype=np.uint64).astype(np.int64)
 rng = np.random.default_rng(7)
 
 print("\nseed size -> 2 hops downstream (neurons, induced edges, MB at 6 B/entry):")
@@ -72,7 +74,7 @@ for k in (25, 100, 400, 1600, 6370):
     cells, e = int(mask.sum()), edges_within(mask)
     print(f"  {k:6d} seeds -> {cells:7,d} neurons {e:10,d} edges  {cells * 6 + e * 6:12,d} B")
 
-io = json.loads((ROOT / "flyverse/assets/male_cns_v1_neural_io.json").read_text())
+io = json.loads((REPO / "assets/male_cns_v1_neural_io.json").read_text())
 walk_motor = idx_of_body_ids(
     io["groups"]["motor_walking_left"]["root_ids"] + io["groups"]["motor_walking_right"]["root_ids"]
 )

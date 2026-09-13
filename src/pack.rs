@@ -163,6 +163,10 @@ pub struct Census {
     pub contact_sum: i64,
 }
 
+/// Default connectome pack, relative to the working directory (a repo-root
+/// `official-pack` symlink points at it). Override with `FLYVERSE_PACK`.
 pub fn pack_dir() -> PathBuf {
-    PathBuf::from("/opt/data/workspaces/skg/flybrain/official-pack")
+    std::env::var("FLYVERSE_PACK")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| PathBuf::from("official-pack"))
 }

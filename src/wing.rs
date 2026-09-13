@@ -95,9 +95,11 @@ pub const WING_DY: f32 = 0.395;
 /// Vertical offset of the wing force above the centre of mass. This is what
 /// makes the body pendulously stable, exactly as a real fly is. [E]
 pub const WING_DZ: f32 = 0.20;
-/// Longitudinal offset of the wing planform centre ahead of the centre of
-/// mass. [D] from the rig (-0.674 mm along the body axis from the thorax,
-/// against a centre of mass aft of it).
+/// Longitudinal offset of the wing planform centre from the centre of mass.
+/// [D] from the rig (-0.674 mm along the body axis from the thorax, against a
+/// centre of mass aft of it). Used in the body's cross product: the vertical
+/// wing force applied at this offset contributes `-WING_DX * (fl[2]+fr[2])` to
+/// the pitching moment, alongside `WING_DZ * (fl[0]+fr[0])`.
 pub const WING_DX: f32 = -0.15;
 
 /// Maximum stroke-plane tilt authority from the steering motor neurons. [E]

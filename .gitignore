@@ -1,5 +1,8 @@
 # Rust build output
 /target
+# The wasm crate is a separate cargo workspace below the repo root, so its
+# target dir is not matched by /target. Anchor it too.
+/wasm/target/
 
 # Connectome pack: 142 MB, compiled from the public FlyEM MaleCNS v1.0 release.
 # Rebuild it with your own pack compiler, or point FLYVERSE_PACK / --pack at it.
