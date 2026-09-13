@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FlyVerse - live MaleCNS fly in a virtual room</title>
+<link rel="stylesheet" href="./style.css?v=20260912b">
+<script>
+  // Diagnostics: a silent freeze leaves the page on the static "connecting" state with
+  // no clue why. Surface any script/module error and report when app.js never starts.
+  window.__fvErrors = [];
+  function fvShow(msg) {
+    window.__fvErrors.push(msg);
+    var el = document.getElementById('fv-err');
+    if (!el) return;
+    el.style.display = 'block';
+    el.textContent = 'ERROR: ' + window.__fvErrors.join('  |  ');
+  }
+  window.addEventListener('error', function (e) {
+    if (e && e.target && e.target.tagName === 'SCRIPT') { fvShow('failed to load ' + (e.target.src || 'script')); return; }
+    fvShow(((e && e.message) || 'script error') + ' @ ' +
+      ((e && e.filename) ? e.filename.split('/').pop() : '?') + ':' + ((e && e.lineno) || 0));
+  }, true);
+  window.addEventListener('unhandledrejection', function (e) {
+    fvShow('unhandled promise: ' + ((e && e.reason && (e.reason.message || e.reason)) || 'unknown'));
+  });
+  setTimeout(function () {
+    if (!window.__fvBooted) fvShow('app.js never started (module blocked or importmap unsupported)');
+  }, 15000);
+</script>
+<script type="importmap">
+{
+  "imports": {
+    "three": "./vendor/three.module.js",
+    "three/addons/": "./vendor/"
+  }
+}
+</script>
+</head>
+<body>
+
+<canvas id="view"></canvas>
+<div id="fv-err" style="display:none;position:fixed;top:0;left:0;right:0;z-index:9999;background:#7f1d1d;color:#fff;font:12px/1.4 ui-monospace,monospace;padding:8px 12px;white-space:pre-wrap"></div>
+
+<div id="ui">
+
+  <!-- ================= LEFT COLUMN ================= -->
+  <aside id="col-left">
+
+    <section class="panel">
+      <h1>FLYVERSE <span class="dim">/ live connectome drive</span></h1>
+      <div class="row"><span class="k">link</span><span class="v" id="v-link">connecting</span></div>
+      <div class="row"><span class="k">stimulus</span><span class="v" id="v-stim">-</span></div>
+      <div class="sep"></div>
+      <div class="row"><span class="k">sim time</span><span class="v" id="v-simtime">-</span></div>
+      <div class="row"><span class="k">realtime</span><span class="v" id="v-rt">-</span></div>
+      <div class="row"><span class="k">seq</span><span class="v" id="v-seq">-</span></div>
+      <div class="row"><span class="k">paused</span><span class="v" id="v-paused">-</span></div>
+    </section>
+
+    <section class="panel">
+      <h2>BODY</h2>
+      <div class="row"><span class="k">mode</span><span class="v" id="v-mode">-</span></div>
+      <div class="row"><span class="k">airborne</span><span class="v" id="v-air">-</span></div>
+      <div class="row"><span class="k">speed</span><span class="v" id="v-speed">-</span></div>
+      <div class="row"><span class="k">altitude</span><span class="v" id="v-alt">-</span></div>
+      <div class="row"><span class="k">pos mm</span><span class="v" id="v-pos">-</span></div>
+      <div class="row"><span class="k">pitch/roll/yaw</span><span class="v" id="v-pry">-</span></div>
+      <div class="row"><span class="k">food dist</span><span class="v" id="v-fooddist">-</span></div>
+      <div class="row"><span class="k">wing amp</span><span class="v" id="v-wingamp">-</span></div>
+      <div class="row"><span class="k">legs down</span><span class="v" id="v-legs">-</span></div>
+    </section>
+
+    <section class="panel">
+      <h2>CONNECTOME</h2>
+      <div class="row"><span class="k">spikes/s</span><span class="v" id="v-sps">-</span></div>
+      <div class="row"><span class="k">spikes (window)</span><span class="v" id="v-spwin">-</span></div>
+      <div class="row"><span class="k">spikes total</span><span class="v" id="v-sptot">-</span></div>
+      <div class="row"><span class="k">neurons active</span><span class="v" id="v-active">-</span></div>
+      <div class="row"><span class="k">mean rate Hz</span><span class="v" id="v-meanrate">-</span></div>
+      <div class="row"><span class="k">takeoff drive</span><span class="v" id="v-tkdrive">-</span></div>
+      <div class="row"><span class="k">altitude drive</span><span class="v" id="v-altdrive">-</span></div>
+      <div class="row"><span class="k">haltere fb</span><span class="v" id="v-hall">-</span></div>
+    </section>
+
+    <section class="panel">
+      <h2>EVENTS</h2>
+      <div class="row"><span class="k">eats</span><span class="v" id="v-eats">0</span></div>
+      <div class="row"><span class="k">takeoffs</span><span class="v" id="v-takeoffs">0</span></div>
+      <div class="row"><span class="k">landings</span><span class="v" id="v-landings">0</span></div>
+      <div class="row"><span class="k">wall hits</span><span class="v" id="v-wallhits">0</span></div>
+    </section>
+
+    <section class="panel">
+      <h2>CONTROL</h2>
+      <div class="btns">
+        <button id="btn-pause" type="button">pause</button>
+        <button id="btn-reset" type="button">reset</button>
+      </div>
+      <div class="btns">
+        <button id="cam-0" type="button" class="cam on">0 chase</button>
+        <button id="cam-1" type="button" class="cam">1 room</button>
+      </div>
+      <div class="btns">
+        <button id="cam-2" type="button" class="cam">2 top</button>
+        <button id="cam-3" type="button" class="cam">3 orbit</button>
+      </div>
+      <p class="hint">keys 0-3 camera, space pause/toggle, r reset<br>orbit: drag = rotate, wheel = zoom</p>
+    </section>
+
+  </aside>
+
+  <!-- ================= RIGHT COLUMN ================= -->
+  <aside id="col-right">
+
+    <section class="panel">
+      <h2>NEURAL REGIONS <span class="dim">0..1</span></h2>
+      <div id="regions"></div>
+    </section>
+
+    <section class="panel">
+      <h2>MOTOR RATES <span class="dim">normalised</span></h2>
+      <div id="motors"></div>
+    </section>
+
+    <section class="panel" id="brain-panel">
+      <h2>CONNECTOME <span class="dim">166,700 somata</span></h2>
+      <div id="brain-wrap">
+        <canvas id="brain"></canvas>
+        <div id="brain-msg">loading positions...</div>
+      </div>
+      <div class="row"><span class="k">polled spikes</span><span class="v" id="v-bpoll">0</span></div>
+      <div class="row"><span class="k">lit neurons</span><span class="v" id="v-blit">0</span></div>
+    </section>
+
+    <section class="panel">
+      <h2>SENSORY</h2>
+      <div id="sensory"></div>
+    </section>
+
+  </aside>
+
+</div>
+
+<footer id="footer">
+  <span>MaleCNS v1.0 - <b id="f-neurons">166,700</b> neurons, <b id="f-edges">24,469,412</b> edges - CC BY 4.0 - Janelia FlyEM</span>
+  <span class="note">Body and flight layer is an engineered surrogate, not a recovered biological flight circuit.</span>
+  <span class="note" id="f-appver">app: not started</span>
+</footer>
+
+<script type="module" src="./app.js?v=20260912b"></script>
+</body>
+</html>

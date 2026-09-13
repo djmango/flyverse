@@ -1,0 +1,197 @@
+/* FlyVerse instrumentation UI. Dark, dense, monospace numbers. No external fonts. */
+
+:root {
+  --bg: #05070a;
+  --panel: rgba(8, 12, 17, 0.82);
+  --panel-solid: #080c11;
+  --edge: #1e2a35;
+  --edge-hi: #2d4356;
+  --txt: #c8d6e0;
+  --txt-dim: #6c8090;
+  --hot: #ffcf4a;
+  --cyan: #3ad0ff;
+  --green: #52e08a;
+  --red: #ff6a5e;
+  --amber: #ffa33c;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--txt);
+  font-family: var(--mono);
+  font-size: 11px;
+  overflow: hidden;
+}
+
+#view {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+#ui {
+  position: fixed;
+  inset: 0 0 30px 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  pointer-events: none;
+  padding: 8px;
+  gap: 8px;
+}
+
+#col-left, #col-right {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 100%;
+  overflow: hidden;
+}
+
+#col-left  { width: 232px; }
+#col-right { width: 330px; }
+
+.panel {
+  pointer-events: auto;
+  background: var(--panel);
+  border: 1px solid var(--edge);
+  border-radius: 3px;
+  padding: 6px 8px 7px;
+  backdrop-filter: blur(3px);
+}
+
+.panel h1 {
+  margin: 0 0 5px;
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  color: var(--cyan);
+  font-weight: 600;
+}
+
+.panel h2 {
+  margin: 0 0 5px;
+  font-size: 9px;
+  letter-spacing: 0.18em;
+  color: var(--txt-dim);
+  font-weight: 600;
+  border-bottom: 1px solid var(--edge);
+  padding-bottom: 3px;
+}
+
+.dim { color: var(--txt-dim); font-weight: 400; letter-spacing: 0; }
+
+.row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+
+.row .k { color: var(--txt-dim); }
+.row .v { color: var(--txt); font-variant-numeric: tabular-nums; }
+
+.sep { height: 4px; }
+
+/* ---- bars ---- */
+.bar-row {
+  display: grid;
+  grid-template-columns: 84px 1fr 34px;
+  align-items: center;
+  gap: 4px;
+  line-height: 1.45;
+}
+.bar-row .lab { color: var(--txt-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bar-row .num { text-align: right; color: var(--txt); font-variant-numeric: tabular-nums; }
+
+.bar {
+  position: relative;
+  height: 6px;
+  background: #10181f;
+  border: 1px solid #1a2530;
+  overflow: hidden;
+}
+.bar i {
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  width: 0%;
+  background: var(--cyan);
+  display: block;
+}
+.bar.b-motor i  { background: var(--amber); }
+.bar.b-hot i    { background: var(--hot); }
+.bar.b-green i  { background: var(--green); }
+.bar.b-neg i    { background: var(--red); }
+
+/* ---- buttons ---- */
+.btns { display: flex; gap: 4px; margin-bottom: 4px; }
+button {
+  flex: 1;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--txt);
+  background: #0d141b;
+  border: 1px solid var(--edge-hi);
+  border-radius: 2px;
+  padding: 3px 4px;
+  cursor: pointer;
+  letter-spacing: 0.04em;
+}
+button:hover { background: #16222c; color: #fff; }
+button.on { background: #10283a; border-color: var(--cyan); color: var(--cyan); }
+
+.hint { margin: 3px 0 0; color: var(--txt-dim); line-height: 1.45; font-size: 9px; }
+
+/* ---- brain inset ---- */
+#brain-wrap {
+  position: relative;
+  width: 310px;
+  height: 310px;
+  background: #020408;
+  border: 1px solid var(--edge);
+  overflow: hidden;
+}
+#brain { width: 100%; height: 100%; display: block; }
+#brain-msg {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--txt-dim);
+  letter-spacing: 0.08em;
+}
+#brain-msg.hidden, .hidden { display: none !important; }
+
+/* ---- footer ---- */
+#footer {
+  position: fixed;
+  left: 0; right: 0; bottom: 0;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 0 10px;
+  background: var(--panel-solid);
+  border-top: 1px solid var(--edge);
+  font-size: 10px;
+  color: var(--txt-dim);
+  white-space: nowrap;
+  overflow: hidden;
+}
+#footer b { color: var(--txt); font-weight: 600; }
+#footer .note { color: #8a7550; }
+
+/* ---- link state ---- */
+#v-link.ok { color: var(--green); }
+#v-link.warn { color: var(--amber); }
+#v-link.bad { color: var(--red); }

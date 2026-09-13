@@ -1,0 +1,20 @@
+# Rust build output
+/target
+
+# Connectome pack: 142 MB, compiled from the public FlyEM MaleCNS v1.0 release.
+# Rebuild it with your own pack compiler, or point FLYVERSE_PACK / --pack at it.
+/official-pack
+/official-pack/
+
+# Behaviour analysis output (regenerate with: flyverse analyze --seconds 30)
+/runs
+/web/runs
+
+# Throwaway debugging pages
+/web/_assettest.html
+/web/_gltest.html
+
+# Local scratch
+*.log
+__pycache__/
+*.pyc

@@ -1,0 +1,24 @@
+{
+  "active_neurons": 17929,
+  "dt_ms": 0.10000000149011612,
+  "edges": 24469412,
+  "engine": "flyverse native Rust (f32, rayon)",
+  "mean_rate_hz": 10.070569735959612,
+  "neurons": 166700,
+  "pack": "/opt/data/workspaces/skg/flybrain/official-pack",
+  "phase_seconds": {
+    "dense_v_g_refractory": 1.911756569999999,
+    "fire_scan": 0.02940829999999989,
+    "ring_clear_and_stimulus": 0.6517181920000009,
+    "spike_propagation": 1.6487634669999958
+  },
+  "realtime_factor": 0.2286798129322416,
+  "seed": 7,
+  "sim_seconds": 1.0000000149011612,
+  "steps": 10000,
+  "steps_per_second": 2286.798095246469,
+  "stimulus": "Poisson 150 Hz on 6370 targets",
+  "threads": 8,
+  "total_spikes": 1678764,
+  "wall_seconds": 4.372926504
+}

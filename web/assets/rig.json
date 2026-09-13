@@ -1,0 +1,775 @@
+{
+ "root": "fly",
+ "bodies": [
+  {
+   "name": "fly/c_thorax",
+   "short": "c_thorax",
+   "pos": [
+    0.496,
+    0.0,
+    2.1
+   ],
+   "parent": null,
+   "mesh": "c_thorax.stl"
+  },
+  {
+   "name": "fly/c_head",
+   "short": "c_head",
+   "pos": [
+    0.0287,
+    0.0,
+    0.000698
+   ],
+   "parent": "fly/c_thorax",
+   "mesh": "c_head.stl"
+  },
+  {
+   "name": "fly/c_rostrum",
+   "short": "c_rostrum",
+   "pos": [
+    0.43,
+    0.0,
+    -0.274
+   ],
+   "parent": "fly/c_head",
+   "mesh": "c_rostrum.stl"
+  },
+  {
+   "name": "fly/c_haustellum",
+   "short": "c_haustellum",
+   "pos": [
+    -0.371,
+    0.0,
+    -0.0196
+   ],
+   "parent": "fly/c_rostrum",
+   "mesh": "c_haustellum.stl"
+  },
+  {
+   "name": "fly/l_eye",
+   "short": "l_eye",
+   "pos": [
+    0.231,
+    -9.31e-10,
+    0.017
+   ],
+   "parent": "fly/c_head",
+   "mesh": "l_eye.stl"
+  },
+  {
+   "name": "fly/r_eye",
+   "short": "r_eye",
+   "pos": [
+    0.231,
+    9.31e-10,
+    0.017
+   ],
+   "parent": "fly/c_head",
+   "mesh": null
+  },
+  {
+   "name": "fly/r_eye_cam_body",
+   "short": "r_eye_cam_body",
+   "pos": [
+    -0.03,
+    -0.38,
+    0.0
+   ],
+   "parent": "fly/r_eye",
+   "mesh": null
+  },
+  {
+   "name": "fly/l_pedicel",
+   "short": "l_pedicel",
+   "pos": [
+    0.429,
+    0.086,
+    0.083
+   ],
+   "parent": "fly/c_head",
+   "mesh": "l_pedicel.stl"
+  },
+  {
+   "name": "fly/l_funiculus",
+   "short": "l_funiculus",
+   "pos": [
+    0.051,
+    -0.000563,
+    -0.0441
+   ],
+   "parent": "fly/l_pedicel",
+   "mesh": "l_funiculus.stl"
+  },
+  {
+   "name": "fly/l_arista",
+   "short": "l_arista",
+   "pos": [
+    0.0198,
+    0.0539,
+    -0.0683
+   ],
+   "parent": "fly/l_funiculus",
+   "mesh": "l_arista.stl"
+  },
+  {
+   "name": "fly/r_pedicel",
+   "short": "r_pedicel",
+   "pos": [
+    0.429,
+    -0.086,
+    0.083
+   ],
+   "parent": "fly/c_head",
+   "mesh": null
+  },
+  {
+   "name": "fly/r_funiculus",
+   "short": "r_funiculus",
+   "pos": [
+    0.051,
+    0.000563,
+    -0.0441
+   ],
+   "parent": "fly/r_pedicel",
+   "mesh": null
+  },
+  {
+   "name": "fly/r_arista",
+   "short": "r_arista",
+   "pos": [
+    0.0198,
+    -0.0539,
+    -0.0683
+   ],
+   "parent": "fly/r_funiculus",
+   "mesh": null
+  },
+  {
+   "name": "fly/c_abdomen12",
+   "short": "c_abdomen12",
+   "pos": [
+    -0.862,
+    0.0,
+    0.0
+   ],
+   "parent": "fly/c_thorax",
+   "mesh": "c_abdomen12.stl"
+  },
+  {
+   "name": "fly/c_abdomen3",
+   "short": "c_abdomen3",
+   "pos": [
+    -0.326,
+    0.0,
+    0.04
+   ],
+   "parent": "fly/c_abdomen12",
+   "mesh": "c_abdomen3.stl"
+  },
+  {
+   "name": "fly/c_abdomen4",
+   "short": "c_abdomen4",
+   "pos": [
+    -0.208,
+    0.0,
+    0.025
+   ],
+   "parent": "fly/c_abdomen3",
+   "mesh": "c_abdomen4.stl"
+  },
+  {
+   "name": "fly/c_abdomen5",
+   "short": "c_abdomen5",
+   "pos": [
+    -0.174,
+    0.0,
+    0.009
+   ],
+   "parent": "fly/c_abdomen4",
+   "mesh": "c_abdomen5.stl"
+  },
+  {
+   "name": "fly/c_abdomen6",
+   "short": "c_abdomen6",
+   "pos": [
+    -0.228,
+    0.0,
+    0.009
+   ],
+   "parent": "fly/c_abdomen5",
+   "mesh": "c_abdomen6.stl"
+  },
+  {
+   "name": "fly/l_wing",
+   "short": "l_wing",
+   "pos": [
+    -0.674,
+    0.395,
+    0.081
+   ],
+   "parent": "fly/c_thorax",
+   "mesh": "l_wing.stl"
+  },
+  {
+   "name": "fly/r_wing",
+   "short": "r_wing",
+   "pos": [
+    -0.674,
+    -0.395,
+    0.081
+   ],
+   "parent": "fly/c_thorax",
+   "mesh": null
+  },
+  {
+   "name": "fly/l_haltere",
+   "short": "l_haltere",
+   "pos": [
+    -0.806,
+    0.214,
+    -0.149
+   ],
+   "parent": "fly/c_thorax",
+   "mesh": "l_haltere.stl"
+  },
+  {
+   "name": "fly/r_haltere",
+   "short": "r_haltere",
+   "pos": [
+    -0.806,
+    -0.214,
+    -0.149
+   ],
+   "parent": "fly/c_thorax",
+   "mesh": null
+  },
+  {
+   "name": "fly/lf_coxa",
+   "short": "lf_coxa",
+   "pos": [
+    -0.161,
+    0.172,
+    -0.23
+   ],
+   "parent": "fly/c_thorax",
+   "mesh": "lf_coxa.stl"
+  },
+  {
+   "name": "fly/lf_trochanterfemur",
+   "short": "lf_trochanterfemur",
+   "pos": [
+    -0.00181,
+    -0.00172,
+    -0.365
+   ],
+   "parent": "fly/lf_coxa",
+   "mesh": "lf_trochanterfemur.stl"
+  },
+  {
+   "name": "fly/lf_tibia",
+   "short": "lf_tibia",
+   "pos": [
+    -0.00465,
+    -0.00149,
+    -0.705
+   ],
+   "parent": "fly/lf_trochanterfemur",
+   "mesh": "lf_tibia.stl"
+  },
+  {
+   "name": "fly/lf_tarsus1",
+   "short": "lf_tarsus1",
+   "pos": [
+    -0.000144,
+    -0.000952,
+    -0.518
+   ],
+   "parent": "fly/lf_tibia",
+   "mesh": "lf_tarsus1.stl"
+  },
+  {
+   "name": "fly/lf_tarsus2",
+   "short": "lf_tarsus2",
+   "pos": [
+    0.00182,
+    -0.000977,
+    -0.225
+   ],
+   "parent": "fly/lf_tarsus1",
+   "mesh": "lf_tarsus2.stl"
+  },
+  {
+   "name": "fly/lf_tarsus3",
+   "short": "lf_tarsus3",
+   "pos": [
+    0.00136,
+    -0.000178,
+    -0.154
+   ],
+   "parent": "fly/lf_tarsus2",
+   "mesh": "lf_tarsus3.stl"
+  },
+  {
+   "name": "fly/lf_tarsus4",
+   "short": "lf_tarsus4",
+   "pos": [
+    0.00169,
+    0.000303,
+    -0.0985
+   ],
+   "parent": "fly/lf_tarsus3",
+   "mesh": "lf_tarsus4.stl"
+  },
+  {
+   "name": "fly/lf_tarsus5",
+   "short": "lf_tarsus5",
+   "pos": [
+    0.00171,
+    -0.000216,
+    -0.087
+   ],
+   "parent": "fly/lf_tarsus4",
+   "mesh": "lf_tarsus5.stl"
+  },
+  {
+   "name": "fly/lm_coxa",
+   "short": "lm_coxa",
+   "pos": [
+    -0.557,
+    0.125,
+    -0.482
+   ],
+   "parent": "fly/c_thorax",
+   "mesh": "lm_coxa.stl"
+  },
+  {
+   "name": "fly/lm_trochanterfemur",
+   "short": "lm_trochanterfemur",
+   "pos": [
+    -0.000216,
+    0.000149,
+    -0.181
+   ],
+   "parent": "fly/lm_coxa",
+   "mesh": "lm_trochanterfemur.stl"
+  },
+  {
+   "name": "fly/lm_tibia",
+   "short": "lm_tibia",
+   "pos": [
+    -0.000971,
+    5.52e-05,
+    -0.784
+   ],
+   "parent": "fly/lm_trochanterfemur",
+   "mesh": "lm_tibia.stl"
+  },
+  {
+   "name": "fly/lm_tarsus1",
+   "short": "lm_tarsus1",
+   "pos": [
+    6.58e-05,
+    -0.00037,
+    -0.667
+   ],
+   "parent": "fly/lm_tibia",
+   "mesh": "lm_tarsus1.stl"
+  },
+  {
+   "name": "fly/lm_tarsus2",
+   "short": "lm_tarsus2",
+   "pos": [
+    0.000512,
+    -9.8e-05,
+    -0.292
+   ],
+   "parent": "fly/lm_tarsus1",
+   "mesh": "lm_tarsus2.stl"
+  },
+  {
+   "name": "fly/lm_tarsus3",
+   "short": "lm_tarsus3",
+   "pos": [
+    -2.81e-05,
+    -0.000153,
+    -0.16
+   ],
+   "parent": "fly/lm_tarsus2",
+   "mesh": "lm_tarsus3.stl"
+  },
+  {
+   "name": "fly/lm_tarsus4",
+   "short": "lm_tarsus4",
+   "pos": [
+    -0.000126,
+    -0.000191,
+    -0.0911
+   ],
+   "parent": "fly/lm_tarsus3",
+   "mesh": "lm_tarsus4.stl"
+  },
+  {
+   "name": "fly/lm_tarsus5",
+   "short": "lm_tarsus5",
+   "pos": [
+    0.000902,
+    9.86e-05,
+    -0.0635
+   ],
+   "parent": "fly/lm_tarsus4",
+   "mesh": "lm_tarsus5.stl"
+  },
+  {
+   "name": "fly/lh_coxa",
+   "short": "lh_coxa",
+   "pos": [
+    -0.784,
+    0.087,
+    -0.497
+   ],
+   "parent": "fly/c_thorax",
+   "mesh": "lh_coxa.stl"
+  },
+  {
+   "name": "fly/lh_trochanterfemur",
+   "short": "lh_trochanterfemur",
+   "pos": [
+    -0.000177,
+    -0.000227,
+    -0.199
+   ],
+   "parent": "fly/lh_coxa",
+   "mesh": "lh_trochanterfemur.stl"
+  },
+  {
+   "name": "fly/lh_tibia",
+   "short": "lh_tibia",
+   "pos": [
+    0.000108,
+    0.000294,
+    -0.836
+   ],
+   "parent": "fly/lh_trochanterfemur",
+   "mesh": "lh_tibia.stl"
+  },
+  {
+   "name": "fly/lh_tarsus1",
+   "short": "lh_tarsus1",
+   "pos": [
+    -8.94e-07,
+    -0.000324,
+    -0.684
+   ],
+   "parent": "fly/lh_tibia",
+   "mesh": "lh_tarsus1.stl"
+  },
+  {
+   "name": "fly/lh_tarsus2",
+   "short": "lh_tarsus2",
+   "pos": [
+    9.69e-05,
+    0.00051,
+    -0.353
+   ],
+   "parent": "fly/lh_tarsus1",
+   "mesh": "lh_tarsus2.stl"
+  },
+  {
+   "name": "fly/lh_tarsus3",
+   "short": "lh_tarsus3",
+   "pos": [
+    0.000123,
+    -0.000255,
+    -0.175
+   ],
+   "parent": "fly/lh_tarsus2",
+   "mesh": "lh_tarsus3.stl"
+  },
+  {
+   "name": "fly/lh_tarsus4",
+   "short": "lh_tarsus4",
+   "pos": [
+    -0.000256,
+    0.000331,
+    -0.0967
+   ],
+   "parent": "fly/lh_tarsus3",
+   "mesh": "lh_tarsus4.stl"
+  },
+  {
+   "name": "fly/lh_tarsus5",
+   "short": "lh_tarsus5",
+   "pos": [
+    0.000214,
+    5.86e-05,
+    -0.0733
+   ],
+   "parent": "fly/lh_tarsus4",
+   "mesh": "lh_tarsus5.stl"
+  },
+  {
+   "name": "fly/rf_coxa",
+   "short": "rf_coxa",
+   "pos": [
+    -0.161,
+    -0.172,
+    -0.23
+   ],
+   "parent": "fly/c_thorax",
+   "mesh": null
+  },
+  {
+   "name": "fly/rf_trochanterfemur",
+   "short": "rf_trochanterfemur",
+   "pos": [
+    -0.00181,
+    0.00172,
+    -0.365
+   ],
+   "parent": "fly/rf_coxa",
+   "mesh": null
+  },
+  {
+   "name": "fly/rf_tibia",
+   "short": "rf_tibia",
+   "pos": [
+    -0.00465,
+    0.00149,
+    -0.705
+   ],
+   "parent": "fly/rf_trochanterfemur",
+   "mesh": null
+  },
+  {
+   "name": "fly/rf_tarsus1",
+   "short": "rf_tarsus1",
+   "pos": [
+    -0.000144,
+    0.000952,
+    -0.518
+   ],
+   "parent": "fly/rf_tibia",
+   "mesh": null
+  },
+  {
+   "name": "fly/rf_tarsus2",
+   "short": "rf_tarsus2",
+   "pos": [
+    0.00182,
+    0.000977,
+    -0.225
+   ],
+   "parent": "fly/rf_tarsus1",
+   "mesh": null
+  },
+  {
+   "name": "fly/rf_tarsus3",
+   "short": "rf_tarsus3",
+   "pos": [
+    0.00136,
+    0.000178,
+    -0.154
+   ],
+   "parent": "fly/rf_tarsus2",
+   "mesh": null
+  },
+  {
+   "name": "fly/rf_tarsus4",
+   "short": "rf_tarsus4",
+   "pos": [
+    0.00169,
+    -0.000303,
+    -0.0985
+   ],
+   "parent": "fly/rf_tarsus3",
+   "mesh": null
+  },
+  {
+   "name": "fly/rf_tarsus5",
+   "short": "rf_tarsus5",
+   "pos": [
+    0.00171,
+    0.000216,
+    -0.087
+   ],
+   "parent": "fly/rf_tarsus4",
+   "mesh": null
+  },
+  {
+   "name": "fly/rm_coxa",
+   "short": "rm_coxa",
+   "pos": [
+    -0.557,
+    -0.125,
+    -0.482
+   ],
+   "parent": "fly/c_thorax",
+   "mesh": null
+  },
+  {
+   "name": "fly/rm_trochanterfemur",
+   "short": "rm_trochanterfemur",
+   "pos": [
+    -0.000216,
+    -0.000149,
+    -0.181
+   ],
+   "parent": "fly/rm_coxa",
+   "mesh": null
+  },
+  {
+   "name": "fly/rm_tibia",
+   "short": "rm_tibia",
+   "pos": [
+    -0.000971,
+    -5.52e-05,
+    -0.784
+   ],
+   "parent": "fly/rm_trochanterfemur",
+   "mesh": null
+  },
+  {
+   "name": "fly/rm_tarsus1",
+   "short": "rm_tarsus1",
+   "pos": [
+    6.58e-05,
+    0.00037,
+    -0.667
+   ],
+   "parent": "fly/rm_tibia",
+   "mesh": null
+  },
+  {
+   "name": "fly/rm_tarsus2",
+   "short": "rm_tarsus2",
+   "pos": [
+    0.000512,
+    9.8e-05,
+    -0.292
+   ],
+   "parent": "fly/rm_tarsus1",
+   "mesh": null
+  },
+  {
+   "name": "fly/rm_tarsus3",
+   "short": "rm_tarsus3",
+   "pos": [
+    -2.81e-05,
+    0.000153,
+    -0.16
+   ],
+   "parent": "fly/rm_tarsus2",
+   "mesh": null
+  },
+  {
+   "name": "fly/rm_tarsus4",
+   "short": "rm_tarsus4",
+   "pos": [
+    -0.000126,
+    0.000191,
+    -0.0911
+   ],
+   "parent": "fly/rm_tarsus3",
+   "mesh": null
+  },
+  {
+   "name": "fly/rm_tarsus5",
+   "short": "rm_tarsus5",
+   "pos": [
+    0.000902,
+    -9.86e-05,
+    -0.0635
+   ],
+   "parent": "fly/rm_tarsus4",
+   "mesh": null
+  },
+  {
+   "name": "fly/rh_coxa",
+   "short": "rh_coxa",
+   "pos": [
+    -0.784,
+    -0.087,
+    -0.497
+   ],
+   "parent": "fly/c_thorax",
+   "mesh": null
+  },
+  {
+   "name": "fly/rh_trochanterfemur",
+   "short": "rh_trochanterfemur",
+   "pos": [
+    -0.000177,
+    0.000227,
+    -0.199
+   ],
+   "parent": "fly/rh_coxa",
+   "mesh": null
+  },
+  {
+   "name": "fly/rh_tibia",
+   "short": "rh_tibia",
+   "pos": [
+    0.000108,
+    -0.000294,
+    -0.836
+   ],
+   "parent": "fly/rh_trochanterfemur",
+   "mesh": null
+  },
+  {
+   "name": "fly/rh_tarsus1",
+   "short": "rh_tarsus1",
+   "pos": [
+    -8.94e-07,
+    0.000324,
+    -0.684
+   ],
+   "parent": "fly/rh_tibia",
+   "mesh": null
+  },
+  {
+   "name": "fly/rh_tarsus2",
+   "short": "rh_tarsus2",
+   "pos": [
+    9.69e-05,
+    -0.00051,
+    -0.353
+   ],
+   "parent": "fly/rh_tarsus1",
+   "mesh": null
+  },
+  {
+   "name": "fly/rh_tarsus3",
+   "short": "rh_tarsus3",
+   "pos": [
+    0.000123,
+    0.000255,
+    -0.175
+   ],
+   "parent": "fly/rh_tarsus2",
+   "mesh": null
+  },
+  {
+   "name": "fly/rh_tarsus4",
+   "short": "rh_tarsus4",
+   "pos": [
+    -0.000256,
+    -0.000331,
+    -0.0967
+   ],
+   "parent": "fly/rh_tarsus3",
+   "mesh": null
+  },
+  {
+   "name": "fly/rh_tarsus5",
+   "short": "rh_tarsus5",
+   "pos": [
+    0.000214,
+    -5.86e-05,
+    -0.0733
+   ],
+   "parent": "fly/rh_tarsus4",
+   "mesh": null
+  }
+ ]
+}

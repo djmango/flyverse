@@ -1,0 +1,18 @@
+[package]
+name = "flyverse"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+description = "Fast native Rust LIF simulation of the Janelia FlyEM MaleCNS v1.0 connectome with a virtual-room embodiment"
+
+[dependencies]
+anyhow = "1"
+memmap2 = "0.9"
+rayon = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
