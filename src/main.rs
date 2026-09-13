@@ -42,6 +42,8 @@ fn usage() -> ! {
          \x20 verify  --pack DIR --stim FILE --out FILE [--steps N]\n\
          \x20 census  --pack DIR\n\
          \x20 analyze --seconds N [--seed S] [--every N] [--out DIR]\n\
+         \x20 flight-test  [--seconds N] [--seed S] [--altitude MM]\n\
+         \x20 yaw-probe    [--seconds N] [--seed S] [--every N]   instrumented yaw: torque, rates, motor asymmetry\n\
          \x20 haltere-probe [--seed S] [--trials N] [--amplitude R] [--out FILE]\n\
          \x20 serve   [--pack DIR] [--port N] [--seconds N] [--rate HZ] [--seed S] [--targets FILE]\n"
     );
@@ -278,6 +280,20 @@ fn main() -> Result<()> {
                 args.f64("airspeed", 300.0) as f32,
             );
             Ok(())
+        }
+        "yaw-probe" => {
+            // Instrumented yaw run: attributes the continuous turning to a
+            // torque rather than to a guess. Prints the whole yaw moment, the
+            // part of it the stroke-plane tilt differential commands and the
+            // part the wing-power differential commands, the damping moment,
+            // the body- and world-frame rates, the raw steering pool rates,
+            // clamp occupancy, and a sweep of the actuator itself.
+            let o = analyze::YawOptions {
+                seconds: args.f64("seconds", 12.0),
+                seed: args.u64("seed", 7),
+                every: args.u64("every", 50),
+            };
+            analyze::yaw_probe(&pack_path, &o)
         }
         "flight-test" => {
             // Does the airframe hold altitude with no surface beneath it? The
