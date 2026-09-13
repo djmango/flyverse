@@ -77,6 +77,37 @@ the right, with the small frontal overlap a fly eye is expected to have.
 
 Output: `assets/male_cns_v1_retinotopy.json`, 1,771 gaze directions.
 
+### Photoreceptor to column
+
+Only 28 of the 6,091 photoreceptors carry a `somaLocation`, so position cannot
+attach them to columns. Connectivity can: a photoreceptor synapses onto the
+lamina neurons of its own cartridge, and those do carry the hex. Each
+photoreceptor is assigned to the column that most of its hexed targets belong
+to.
+
+| Check | Result |
+|---|---|
+| assigned | 5,895 of 6,091 (196 have no hexed target at all) |
+| target sets naming exactly one column | 5,293 |
+| dominant column at least 80% of a target set | 5,641 |
+| photoreceptor `rootSide` equals its column's side | **5,895 / 5,895** |
+
+The script exits rather than write the table if the side check fails.
+
+**Side lives in two different columns.** Photoreceptors have a null `somaSide`
+and carry their side in `rootSide`; lamina and medulla neurons are the exact
+reverse, `rootSide` null and `somaSide` populated. Reading one column for both
+populations returns null for 6,062 of 6,091 photoreceptors and makes the check
+vacuous, which is how the first version of this script came to report a
+meaningless "0 mismatches" over 29 neurons. Comparing the two different columns
+is what produces the 5,895/5,895 above.
+
+Caveat: this is not a complete retina. Photoreceptors per column average 3.35 on
+the left and 4.62 on the right, against the six R1-R6 plus one R7 and one R8
+that a cartridge holds, and the retinal sampling is uneven between the two
+eyes. 5,895 photoreceptors are placed with confidence; the per-column counts
+should not be read as a full ommatidial lattice.
+
 ## The bug that killed the visual system
 
 `scripts/build_pack.py` assigned each edge a sign from the transmitter of its

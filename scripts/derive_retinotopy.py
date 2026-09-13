@@ -28,7 +28,7 @@ Usage: derive_retinotopy.py [--out assets/male_cns_v1_retinotopy.json]
 import argparse
 import json
 import sys
-from collections import defaultdict
+from collections import Counter, defaultdict
 from pathlib import Path
 
 import numpy as np
@@ -36,7 +36,7 @@ import pyarrow.feather as f
 
 AP = Path("/opt/data/workspaces/skg/flybrain/annotations.feather")
 COLS = ("bodyId", "flywireType", "class", "assignedOlHex1", "assignedOlHex2",
-        "somaSide", "somaLocation", "somaNeuromere", "exitNerve")
+        "somaSide", "rootSide", "somaLocation", "somaNeuromere", "exitNerve")
 # the cell types that make up one optic lobe cartridge
 COLUMN_TYPES = {"L1", "L2", "L3", "L4", "L5", "Mi1", "Mi4", "Mi9",
                 "Tm1", "Tm2", "Tm20", "T1", "C3"}
@@ -112,6 +112,9 @@ def derive_frame(c):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", default="assets/male_cns_v1_retinotopy.json")
+    ap.add_argument("--pack", default="official-pack",
+                    help="pack directory, used to read the connectivity needed "
+                         "for the photoreceptor -> column assignment")
     args = ap.parse_args()
 
     c = load()
@@ -159,6 +162,74 @@ def main():
               f"up {V[:,2].min():+.2f}..{V[:,2].max():+.2f}")
         out["columns"][side] = {"sphere_centre": [round(float(x), 1) for x in ctr],
                                 "sphere_radius": round(rad, 1), "gaze": dirs}
+
+    # Assign each photoreceptor to a column. The photoreceptors carry no hex
+    # assignment of their own, and only 28 of 6,091 have a soma location, so
+    # position cannot be used. Connectivity can: a photoreceptor synapses onto
+    # the lamina neurons of its own cartridge, and those carry the hex. Each
+    # photoreceptor is therefore assigned to the column that most of its
+    # hexed targets belong to.
+    print("\n=== photoreceptor -> column assignment (by connectivity)")
+    pack = Path(args.pack)
+    pids = np.load(pack / "neuron_ids.npy")
+    rptr = np.load(pack / "row_ptr.npy")
+    dest = np.load(pack / "destinations.npy")
+    pos_of = {int(b): k for k, b in enumerate(pids)}
+
+    hexof = {}
+    for i in range(n):
+        if c["assignedOlHex1"][i] is not None and c["assignedOlHex2"][i] is not None \
+                and c["somaSide"][i] in ("L", "R"):
+            hexof[int(c["bodyId"][i])] = (c["somaSide"][i],
+                                          int(c["assignedOlHex1"][i]),
+                                          int(c["assignedOlHex2"][i]))
+
+    assign, unassignable, unanimous, dominated, mismatch, checked = {}, 0, 0, 0, 0, 0
+    for i in range(n):
+        if c["class"][i] != "visual":
+            continue
+        b = int(c["bodyId"][i])
+        s = pos_of.get(b)
+        if s is None:
+            continue
+        tally = Counter()
+        for d in dest[rptr[s]:rptr[s + 1]]:
+            col = hexof.get(int(pids[d]))
+            if col is not None:
+                tally[col] += 1
+        if not tally:
+            unassignable += 1
+            continue
+        top, cnt = tally.most_common(1)[0]
+        if len(tally) == 1:
+            unanimous += 1
+        if cnt / sum(tally.values()) >= 0.8:
+            dominated += 1
+        assign[b] = top
+        # Cross-check: the photoreceptor's own side must equal the side of the
+        # column it innervates. Photoreceptors carry their side in `rootSide`
+        # (their `somaSide` is null) while lamina neurons carry it in
+        # `somaSide` (their `rootSide` is null), so this compares the two
+        # different columns of the table and covers every photoreceptor.
+        own = c["rootSide"][i]
+        if own in ("L", "R"):
+            checked += 1
+            if top[0] != own:
+                mismatch += 1
+
+    print(f"  assigned: {len(assign)}  unassignable (no hexed target): {unassignable}")
+    print(f"  single-column target sets: {unanimous}  dominant share >= 0.8: {dominated}")
+    print(f"  side check (rootSide vs the column's side): {checked - mismatch}/{checked} "
+          f"agree" + (f" -- {mismatch} MISMATCHES" if mismatch else ""))
+    if mismatch:
+        sys.exit("photoreceptor side check failed; the assignment is not trustworthy")
+    out["photoreceptors"] = {"L": {}, "R": {}}
+    for b, (sd, a, bb) in assign.items():
+        out["photoreceptors"][sd].setdefault(f"{a},{bb}", []).append(b)
+    for sd in ("L", "R"):
+        per = np.array([len(v) for v in out["photoreceptors"][sd].values()])
+        print(f"  side {sd}: {per.sum()} photoreceptors over {len(per)} columns, "
+              f"{per.mean():.2f} per column (min {per.min()}, max {per.max()})")
 
     p = Path(args.out)
     p.parent.mkdir(parents=True, exist_ok=True)

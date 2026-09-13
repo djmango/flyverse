@@ -254,7 +254,7 @@ work, not a current property.
 | `vnc_sensory` stimulus | replayed | 6,370 IDs at fixed Poisson 150 Hz, not body-generated |
 | Odour field | surrogate | finite-core exponential plume, `room.rs::odor` |
 | Retina → lamina → lobula plate | real, restored | 6,091 photoreceptors reach 23,707 lamina/medulla neurons in 1 synapse and all 44 lobula plate tangential cells in 2-3 |
-| Retinotopy | real, derived | `assignedOlHex1/2` tiles the optic lobe into 892 columns; gaze directions from a sphere fit to real soma coordinates (`scripts/derive_retinotopy.py`) |
+| Retinotopy | real, derived | `assignedOlHex1/2` tiles the optic lobe into 892 columns, gaze directions from a sphere fit to real soma coordinates; 5,895 photoreceptors attached to their cartridge by connectivity (`scripts/derive_retinotopy.py`) |
 | Optic flow | surrogate | `0.5 * speed/300 + 0.5 * turn`, no rendered scene. The *targets* are real (H2/HSE/HSN/HSS/HST/VS/VST1/VST2/VSm); the motion formula is not |
 | Loom | surrogate, bilateral | time-to-contact with the nearest wall face, same value both sides |
 | Wingbeat | surrogate | visual phase 19 Hz against a real ~200 Hz stroke |
