@@ -19,16 +19,3 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-
----
-
-This MIT license covers the original code and documentation of FlyVerse.
-
-It does NOT relicense the bundled third-party data or assets. Connectome data,
-annotations, body meshes and the vendored three.js build retain their own terms,
-listed in THIRD_PARTY_NOTICES.md. In particular:
-
-  - FlyEM MaleCNS v1.0 derived data (data/, assets/male_cns_v1_neural_io.json)
-    is CC BY 4.0 and requires attribution.
-  - NeuroMechFly / FlyGym body meshes (web/assets/meshes/) are Apache-2.0.
-  - three.js (web/vendor/) is MIT, Copyright 2010-2025 three.js authors.
