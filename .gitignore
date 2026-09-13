@@ -18,3 +18,7 @@
 *.log
 __pycache__/
 *.pyc
+
+# Slice exports for the browser lesson (2.5 MB, regenerate with
+# scripts/export_slice.py from the pack) and the parity record.
+/build

@@ -916,10 +916,27 @@ pub fn rotation_probe(pack: &Path, o: &Options, p: &ProbeOptions) -> Result<()> 
         } else {
             "DISCONNECTED (control)"
         },
-        if w.flow_on {
+        // Report *effective* delivery, not the env flag: when the retina is on
+        // the gating in `step` zeroes this channel, so `flow_on` alone would
+        // claim a visual drive that is not actually reaching the brain.
+        if w.flow_on && !w.retina.on {
             "delivered"
+        } else if w.flow_on {
+            "SUPERSEDED (retina is the visual drive)"
         } else {
             "SILENCED (control)"
+        }
+    );
+    // Record which visual channel is live. Since the retina drives the same
+    // tangential cells the optic-flow proxy used to, a probe result is only
+    // interpretable alongside this line.
+    println!(
+        "probe: retina {}",
+        if w.retina.on {
+            format!("SAMPLING THE ROOM ({} columns, {} photoreceptors)",
+                w.retina.columns(), w.retina.photons)
+        } else {
+            "SILENCED (control) -- optic-flow proxy is the visual drive".to_string()
         }
     );
     println!(
@@ -1031,7 +1048,16 @@ pub fn rotation_probe(pack: &Path, o: &Options, p: &ProbeOptions) -> Result<()> 
     out.insert("warmup_s".into(), p.warmup_s.into());
     out.insert("trials_total".into(), p.trials.into());
     out.insert("haltere_connected".into(), w.haltere_on.into());
-    out.insert("optic_flow_delivered".into(), w.flow_on.into());
+    out.insert("retina_on".into(), w.retina.on.into());
+    out.insert("retina_columns".into(), w.retina.columns().into());
+    out.insert("retina_photoreceptors".into(), w.retina.photons.into());
+    // Effective delivery, not the env flag. The gating in `step` zeroes the
+    // proxy whenever the retina is on, so `flow_on` alone would archive a
+    // visual drive that never reached the brain.
+    out.insert(
+        "optic_flow_proxy_delivered".into(),
+        (w.flow_on && !w.retina.on).into(),
+    );
     out.insert("seed".into(), o.seed.into());
     let mut axes_out = serde_json::Map::new();
 
