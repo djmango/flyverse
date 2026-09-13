@@ -10,6 +10,7 @@ mod npy;
 mod pack;
 mod room;
 mod sim;
+mod wing;
 
 use anyhow::{bail, Context, Result};
 use lif::{Lif, StimGen, DT_MS};

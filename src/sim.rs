@@ -106,6 +106,12 @@ pub struct World {
     pub step: u64,
     /// Size of the reference vnc_sensory stimulus set.
     pub vnc_targets: usize,
+    /// Number of mechanosensory groups merged in from the inventory.
+    pub mech_groups: usize,
+    /// Whether the haltere afferents are wired to the body. Off is the
+    /// control condition for asking whether the connectome does anything with
+    /// the rotation signal it is given.
+    pub haltere_on: bool,
     /// Model indices that fired during the last control window.
     pub window_spikes: Vec<u32>,
 
@@ -118,6 +124,10 @@ pub struct World {
     d_vis_r: Drive,
     d_loom_l: Drive,
     d_loom_r: Drive,
+    d_hal_l: Drive,
+    d_hal_r: Drive,
+    d_legtac_l: Drive,
+    d_legtac_r: Drive,
 
     // Motor and descending read-outs.
     o_pow_l: Out,
@@ -154,7 +164,15 @@ pub struct World {
 impl World {
     pub fn new(pack: &Path, seed: u64, somas: Option<Somas>) -> Result<World> {
         let conn = Arc::new(Connectome::load(pack)?);
-        let groups = Groups::load(&conn, &Groups::io_path())?;
+        let mut groups = Groups::load(&conn, &Groups::io_path())?;
+        // Join the mechanosensory inventory so the body can be felt as well as
+        // seen and smelled. Missing file is a hard error: a silently absent
+        // sense organ would look exactly like a fly that cannot feel rotation.
+        let mech = groups.merge_file(&conn, &Groups::mechano_path())?;
+        eprintln!(
+            "[flyverse] body mechanosensation: merged {mech} groups from {}",
+            Groups::mechano_path().display()
+        );
         let lif = Lif::new(&conn);
         let rates = GroupRates::new(groups.names.len(), WINDOW_STEPS);
 
@@ -189,12 +207,21 @@ impl World {
         let d_loom_l = mk("visual_loom_left", 0.0, 7);
         let d_loom_r = mk("visual_loom_right", 0.0, 8);
 
+        // Body mechanosensation. These are driven from the body's own state
+        // every window (see `sense`), so the connectome can tell that it is
+        // rotating and whether its feet are loaded. Before this, the fly had
+        // no way to know it was moving at all except through the eyes.
+        let d_hal_l = mk("haltere_proprioceptive_L", 0.0, 9);
+        let d_hal_r = mk("haltere_proprioceptive_R", 0.0, 10);
+        let d_legtac_l = mk("leg_tactile_L", 0.0, 11);
+        let d_legtac_r = mk("leg_tactile_R", 0.0, 12);
+
         let room = room::ROOM;
         let food = room.food_home();
         let mut body = Body::new();
         body.reset();
         body.pos = [-220.0, -150.0, 0.0];
-        body.yaw = 0.6;
+        body.set_yaw(0.6);
 
         Ok(World {
             o_pow_l: Out::new(&groups, "motor_flight_power_left", 90.0),
@@ -218,6 +245,10 @@ impl World {
             d_vis_r,
             d_loom_l,
             d_loom_r,
+            d_hal_l,
+            d_hal_r,
+            d_legtac_l,
+            d_legtac_r,
             dn_filt: 0.0,
             land_filt: 0.0,
             sm: [0.0; 9],
@@ -230,6 +261,8 @@ impl World {
             stim: Vec::with_capacity(512),
             window_spikes: Vec::with_capacity(4096),
             vnc_targets,
+            mech_groups: mech,
+            haltere_on: std::env::var("FLYVERSE_NO_HALTERE").is_err(),
             conn,
             lif,
             groups,
@@ -259,6 +292,10 @@ impl World {
             s.extend_from_slice(self.d_vis_r.events());
             s.extend_from_slice(self.d_loom_l.events());
             s.extend_from_slice(self.d_loom_r.events());
+            s.extend_from_slice(self.d_hal_l.events());
+            s.extend_from_slice(self.d_hal_r.events());
+            s.extend_from_slice(self.d_legtac_l.events());
+            s.extend_from_slice(self.d_legtac_r.events());
             self.lif.step(&self.conn, &s);
             self.window_spikes.extend_from_slice(&self.lif.fired);
             for &i in &self.lif.fired {
@@ -291,8 +328,10 @@ impl World {
         let (room, food) = (self.room, self.food);
         self.body.update(&room, food, &m, dn, lf, WINDOW_S);
 
-        let dy = wrap_pi(self.body.yaw - self.prev_yaw);
-        self.yaw_rate = dy / WINDOW_S;
+        // Yaw rate from the body's angular velocity, not from a differenced
+        // Euler angle: once the body tumbles the Euler chart wraps and the
+        // quotient invents rates that the body never had.
+        self.yaw_rate = self.body.yaw_rate_world();
         self.prev_yaw = self.body.yaw;
     }
 
@@ -332,6 +371,35 @@ impl World {
         let loom = self.loom();
         self.d_loom_l.rate_hz = loom as f64 * 60.0;
         self.d_loom_r.rate_hz = loom as f64 * 60.0;
+
+        // Haltere afferents: the only route by which the connectome can feel
+        // that the body is rotating. Driven from the body's own angular
+        // velocity through the Coriolis model, one window behind the rotation
+        // it reports, because a sense organ cannot lead the body it senses.
+        // FLYVERSE_NO_HALTERE=1 is the control condition: the body still
+        // rotates and the haltere model still computes what the afferents
+        // would say, but the spikes never reach the network. Comparing the two
+        // runs is how we find out whether the connectome does anything at all
+        // with the rotation signal.
+        let hg = if self.haltere_on { 1.0 } else { 0.0 };
+        self.d_hal_l.rate_hz = self.body.haltere_l as f64 * hg;
+        self.d_hal_r.rate_hz = self.body.haltere_r as f64 * hg;
+
+        // Leg tactile bristles report the load the legs are carrying: the
+        // weight the wings are not holding up. Zero in the air.
+        let grounded = matches!(self.body.mode, Mode::Ground | Mode::Feeding);
+        let load = if grounded {
+            let w = self.body.weight();
+            if w > 0.0 {
+                ((w - self.body.wing_lift()) / w).clamp(0.0, 1.0)
+            } else {
+                0.0
+            }
+        } else {
+            0.0
+        };
+        self.d_legtac_l.rate_hz = load as f64 * 120.0;
+        self.d_legtac_r.rate_hz = load as f64 * 120.0;
     }
 
     fn loom(&self) -> f32 {

@@ -166,6 +166,79 @@ impl Groups {
     pub fn io_path() -> PathBuf {
         io_json_path()
     }
+
+    /// The mechanosensory / proprioceptive inventory, which is a separate file
+    /// so neither it nor the main I/O set has to know about the other.
+    pub fn mechano_path() -> PathBuf {
+        std::env::var_os("FLYVERSE_MECHANO_JSON")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from("assets/male_cns_v1_mechanosensory_io.json"))
+    }
+
+    /// Merge the groups of another neural_io-format file into this set.
+    ///
+    /// A group name that already exists is replaced; a new one is appended.
+    /// The derived tables (`neuron_group`, `group_region`, `group_size`) are
+    /// rebuilt afterwards so they stay consistent with `members`, which is
+    /// what the per-neuron accounting in the LIF loop depends on.
+    pub fn merge_file(&mut self, c: &Connectome, path: &Path) -> Result<usize> {
+        if !path.exists() {
+            anyhow::bail!("missing group file {}", path.display());
+        }
+        let text = std::fs::read_to_string(path)
+            .with_context(|| format!("read {}", path.display()))?;
+        let root: Value = serde_json::from_str(&text)
+            .with_context(|| format!("parse {}", path.display()))?;
+        let groups = root
+            .get("groups")
+            .and_then(|v| v.as_object())
+            .with_context(|| format!("{} has no groups object", path.display()))?;
+        let mut keys: Vec<&String> = groups.keys().collect();
+        keys.sort();
+
+        let mut added = 0usize;
+        for k in keys {
+            let g = &groups[k];
+            let mut roots: Vec<u64> = g
+                .get("root_ids")
+                .and_then(|v| v.as_array())
+                .map(|a| a.iter().filter_map(|x| x.as_u64()).collect())
+                .unwrap_or_default();
+            roots.sort_unstable();
+            roots.dedup();
+            if roots.is_empty() {
+                // A group that selected nothing would silently contribute a
+                // dead channel, so refuse it loudly instead.
+                anyhow::bail!("group {k} in {} selected no neurons", path.display());
+            }
+            let idx = c.indices_of_sorted(&roots);
+            match self.by_name.get(k) {
+                Some(&gi) => self.members[gi] = idx,
+                None => {
+                    self.by_name.insert(k.clone(), self.names.len());
+                    self.names.push(k.clone());
+                    self.members.push(idx);
+                    added += 1;
+                }
+            }
+        }
+        self.rebuild(c.n);
+        Ok(added)
+    }
+
+    fn rebuild(&mut self, n: usize) {
+        let mut neuron_group = vec![0u16; n];
+        for (gi, mem) in self.members.iter().enumerate() {
+            for &mi in mem {
+                if neuron_group[mi as usize] == 0 {
+                    neuron_group[mi as usize] = (gi + 1) as u16;
+                }
+            }
+        }
+        self.neuron_group = neuron_group;
+        self.group_region = self.names.iter().map(|n| region_of(n)).collect();
+        self.group_size = self.members.iter().map(|m| m.len().max(1) as u32).collect();
+    }
 }
 
 /// Poisson driver over a fixed set of target neurons, with an independent
