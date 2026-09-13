@@ -181,6 +181,18 @@ pub struct Body {
     pub gait_phase: f32,
     pub legs_supported: u8,
     pub takeoff_drive: f32,
+    /// Vertical component of the wing force from the last integration, in the
+    /// body frame and in the world frame. `wing_lift()` returns the body-frame
+    /// value; what actually fights gravity is the world-frame one, and the two
+    /// differ by the body's orientation. Logging only the body-frame number
+    /// overstates the upward force whenever the fly is not level.
+    pub fz_body: f32,
+    pub fz_world: f32,
+    /// Aerodynamic torque from the last integration, in the body frame, and the
+    /// damping torque actually opposing it. Recorded so a systematic rotation
+    /// can be attributed to a steady torque rather than guessed at.
+    pub tau_aero: [f32; 3],
+    pub tau_damp: [f32; 3],
     /// Retained for the telemetry schema. No longer a target: the body has no
     /// altitude setpoint, so this only reports where it happens to be.
     pub alt_drive: f32,
@@ -220,6 +232,10 @@ impl Body {
             gait_phase: 0.0,
             legs_supported: 6,
             takeoff_drive: 0.0,
+            fz_body: 0.0,
+            fz_world: 0.0,
+            tau_aero: [0.0; 3],
+            tau_damp: [0.0; 3],
             alt_drive: 0.0,
             alt_target: 0.0,
             feed_timer_ms: 0.0,
@@ -301,6 +317,29 @@ impl Body {
         let fl = wing::wing_force_vector(self.wing_amp_l, wing::WINGBEAT_HZ, airspeed, self.tilt_l);
         let fr = wing::wing_force_vector(self.wing_amp_r, wing::WINGBEAT_HZ, airspeed, self.tilt_r);
         fl[2] + fr[2]
+    }
+
+    /// Vertical component of the wing force in the **world** frame.
+    ///
+    /// This is the quantity that actually fights gravity. `wing_lift()` is the
+    /// body-frame value, which is what the wings produce along the body's own
+    /// up axis; rotating the body tilts that away from vertical. Using the
+    /// body-frame value to decide whether the fly can fly makes the decision
+    /// independent of orientation, so a tumbling body always "can fly".
+    pub fn wing_lift_world(&self) -> f32 {
+        let airspeed = self.airspeed();
+        let fl = wing::wing_force_vector(self.wing_amp_l, wing::WINGBEAT_HZ, airspeed, self.tilt_l);
+        let fr = wing::wing_force_vector(self.wing_amp_r, wing::WINGBEAT_HZ, airspeed, self.tilt_r);
+        let f_body = [fl[0] + fr[0], fl[1] + fr[1], fl[2] + fr[2]];
+        qrot(self.q, f_body)[2]
+    }
+
+    /// Angle between the body's own up axis and world up, in degrees. Zero is
+    /// level; 90 is on its side; 180 is inverted. Measures attitude alone, so
+    /// it cannot be confused with where the fly is pointing in the plane.
+    pub fn tilt_deg(&self) -> f32 {
+        let up = qrot(self.q, [0.0, 0.0, 1.0]);
+        up[2].clamp(-1.0, 1.0).acos().to_degrees()
     }
 
     /// Weight in mg*mm/s^2.
@@ -402,7 +441,12 @@ impl Body {
         // Physical liftoff: the wings beat, and when the aerodynamic force
         // they generate exceeds the fly's weight it leaves the ground. There
         // is no takeoff timer and no command to climb.
-        if self.wing_lift() > self.weight() {
+        //
+        // This reads the WORLD-frame vertical component. The body-frame value
+        // (`wing_lift()`) is what the wings produce along the body's own up
+        // axis, which a tumbling body can keep above weight while producing no
+        // useful lift at all -- it made the fly take off 112 times in 12 s.
+        if self.wing_lift_world() > self.weight() {
             self.mode = Mode::Takeoff;
             self.label_ms = TAKEOFF_LABEL_MS;
             self.takeoffs += 1;
@@ -419,6 +463,8 @@ impl Body {
         let fr = wing::wing_force_vector(self.wing_amp_r, wing::WINGBEAT_HZ, airspeed, self.tilt_r);
         let f_body = [fl[0] + fr[0], fl[1] + fr[1], fl[2] + fr[2]];
         let f_world = qrot(self.q, f_body);
+        self.fz_body = f_body[2];
+        self.fz_world = f_world[2];
 
         // Translational dynamics: wing force, gravity, body drag.
         let drag = wing::body_drag(self.vel, 1.0);
@@ -461,9 +507,44 @@ impl Body {
             dy * (fr[0] - fl[0]),
         ];
         let damp = wing::wing_damping();
+        self.tau_aero = tau_aero;
+        self.tau_damp = [
+            damp[0] * self.omega[0],
+            damp[1] * self.omega[1],
+            damp[2] * self.omega[2],
+        ];
+
+        // Pendular restoring torque.
+        //
+        // The wing force acts at WING_DZ above the centre of mass, and on the
+        // timescale of a body perturbation it is directed along the stroke
+        // plane normal fixed in the WORLD frame, not carried round with the
+        // body. A vertical force applied above the centre of mass is a
+        // suspension point: the centre of mass hangs below it, so tilting the
+        // body moves the application point sideways and the resulting
+        // `p x F` opposes the tilt:
+        //
+        //     p = dz * u,  F vertical  =>  tau = dz * F * (u x zhat)
+        //
+        // where u is the body's up axis in world coordinates. The torque is
+        // applied straight into the body-frame integrator below because this
+        // term only acts over the small tilts where the two frames' x/y
+        // components agree.
+        //
+        // Without this the body has no restoring mechanism in pitch or roll:
+        // `qrot` tips the wing force with the body, so p and F stay parallel,
+        // their cross product is zero, and nothing opposes the tilt. That is
+        // why the free-flight test shows the body accumulating rotation the
+        // moment it produces thrust instead of settling near level.
+        let u = qrot(self.q, [0.0, 0.0, 1.0]);
+        let f_up = f_body[2].max(0.0);
+        let tau_restore = [dz * f_up * u[1], -dz * f_up * u[0], 0.0];
+
         self.omega = [
-            self.omega[0] + (tau_aero[0] - damp[0] * self.omega[0]) / wing::I_ROLL * dt,
-            self.omega[1] + (tau_aero[1] - damp[1] * self.omega[1]) / wing::I_PITCH * dt,
+            self.omega[0]
+                + (tau_aero[0] + tau_restore[0] - damp[0] * self.omega[0]) / wing::I_ROLL * dt,
+            self.omega[1]
+                + (tau_aero[1] + tau_restore[1] - damp[1] * self.omega[1]) / wing::I_PITCH * dt,
             self.omega[2] + (tau_aero[2] - damp[2] * self.omega[2]) / wing::I_YAW * dt,
         ];
         for a in 0..3 {

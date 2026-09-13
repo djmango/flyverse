@@ -269,6 +269,30 @@ fn main() -> Result<()> {
             };
             analyze::run(&pack_path, &o)
         }
+        "torque-sweep" => {
+            // Can the stroke plane produce forward thrust with no pitching
+            // moment? Decides whether level flight is a control problem or the
+            // body model cannot represent it at all.
+            crate::wing::torque_sweep(
+                args.f64("amplitude", 3.0) as f32,
+                args.f64("airspeed", 300.0) as f32,
+            );
+            Ok(())
+        }
+        "flight-test" => {
+            // Does the airframe hold altitude with no surface beneath it? The
+            // mean lift-to-weight ratio decides whether sustained flight is
+            // possible at all, separately from the floor interaction that
+            // dominates a normal run.
+            let o = analyze::Options {
+                seconds: args.f64("seconds", 10.0),
+                seed: args.u64("seed", 7),
+                sample_every: 1,
+                out: PathBuf::from("."),
+            };
+            let altitude = args.f64("altitude", 1000.0) as f32;
+            analyze::flight_test(&pack_path, &o, altitude)
+        }
         "haltere-probe" => {
             // Imposed-rotation probe: does the network drive the wings to oppose
             // a rotation it did not generate? Sign-averaged, so chaos cancels.
