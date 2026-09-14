@@ -255,18 +255,32 @@ pub const HALTERE_FULL_SCALE: f32 = 50.0;
 /// position sensor.
 ///
 /// `omega_perp` is the angular rate in rad/s this haltere responds to, taken
-/// with the sign appropriate to it. The response saturates, as real afferents
-/// do.
+/// with the sign appropriate to it: positive in the direction that deflects
+/// the haltere forward in its stroke, negative in the opposite direction. The
+/// response is *signed* and saturating, so one direction of rotation lifts the
+/// afferent rate above the carrier and the other pushes it below, and a pair
+/// of halteres can therefore report which way the body is turning. A rate
+/// sensor that took the magnitude could not.
 pub fn haltere_rate_hz(omega_perp: f32, base_hz: f32) -> f32 {
     // The Coriolis deflection scales linearly with rotation rate: the tip
     // speed is fixed by the haltere's own beat, so F = 2 m omega v is linear
     // in omega and the deflection is too, against the haltere's elastic
-    // restoring stiffness. That makes the response simply proportional to
-    // rate until it saturates, which is what the functional form below
-    // encodes. The stiffness is not separately measured, so it sets the
-    // full-scale constant rather than appearing explicitly.
-    let response = (omega_perp.abs() / HALTERE_FULL_SCALE).min(1.0);
-    base_hz * (1.0 + response)
+    // restoring stiffness. That makes the response proportional to the signed
+    // rate until it saturates. The stiffness is not separately measured, so it
+    // sets the full-scale constant rather than appearing explicitly.
+    //
+    // The modulation is applied multiplicatively because the deflection
+    // reverses with the rotation and a firing rate is strictly positive: an
+    // additive form `base * (1 + u)` would reach 0 Hz at negative full scale,
+    // which no afferent can fire at, while the multiplicative form has no such
+    // singularity. With `u` the signed, clamped Coriolis drive, the rate is
+    // `base * 2^u` in [base/2, 2*base]: a positive rotation multiplies the
+    // carrier by the same factor a negative rotation divides it by, which is
+    // the symmetric, sign-preserving sense in which a Coriolis transducer
+    // modulates its carrier. At positive full scale it recovers exactly the
+    // previous double-rate ceiling, so the change is confined to the sign.
+    let u = (omega_perp / HALTERE_FULL_SCALE).clamp(-1.0, 1.0);
+    base_hz * 2.0f32.powf(u)
 }
 
 /// Split a body angular velocity into the signal each haltere sees.
@@ -350,10 +364,53 @@ mod tests {
         assert!((haltere_rate_hz(0.0, base) - base).abs() < 1e-3);
         // Half full scale gives half the modulation, not half the rate.
         let half = haltere_rate_hz(HALTERE_FULL_SCALE * 0.5, base);
-        assert!((half - base * 1.5).abs() < 1e-3, "half scale gave {half:.2} Hz");
+        assert!(
+            (half - base * 2.0f32.sqrt()).abs() < 1e-3,
+            "half scale gave {half:.2} Hz"
+        );
         // At and beyond full scale the afferent cannot report more.
         let sat = haltere_rate_hz(HALTERE_FULL_SCALE * 10.0, base);
         assert!((sat - base * 2.0).abs() < 1e-3, "saturation gave {sat:.2} Hz");
+    }
+
+    #[test]
+    fn haltere_response_is_signed_across_zero() {
+        // PASS/FAIL: a rectifying implementation (anything that takes
+        // `omega.abs()`, as the pre-fix code did) returns the SAME rate for
+        // +x and -x, so `pos - neg` collapses to 0 and the monotonic walk
+        // below goes flat. Both assertions therefore fail on a rectifier and
+        // pass only when the sign of the rotation survives into the rate.
+        let base = HALTERE_BASE_HZ;
+        let pos = haltere_rate_hz(HALTERE_FULL_SCALE, base);
+        let neg = haltere_rate_hz(-HALTERE_FULL_SCALE, base);
+        // One direction must speed the afferent up, the other slow it down.
+        assert!(
+            pos > base && neg < base,
+            "sign lost: +full scale gave {pos:.1} Hz, -full scale gave {neg:.1} Hz"
+        );
+        assert!(
+            pos - neg > 0.5 * base,
+            "opposite rotations must differ in sign and in size, got {:.1} Hz",
+            pos - neg
+        );
+        // A firing rate is strictly positive and bounded: the signed form must
+        // never reach zero or run away.
+        for x in [-4.0f32, -1.0, -1e-3, 0.0, 1e-3, 1.0, 4.0] {
+            let r = haltere_rate_hz(x * HALTERE_FULL_SCALE, base);
+            assert!(
+                r > 0.0 && r <= 2.0 * base,
+                "rate {r:.2} Hz out of the positive range at x={x}"
+            );
+        }
+        // Monotonic in the signed rate across zero: the rate has to increase
+        // with omega from the slowest leftward rotation to the fastest
+        // rightward one, which a rectifier cannot do.
+        let mut prev = f32::NEG_INFINITY;
+        for k in -10..=10 {
+            let r = haltere_rate_hz(k as f32 * 0.1 * HALTERE_FULL_SCALE, base);
+            assert!(r > prev, "rate is not monotonic in signed omega at k={k}");
+            prev = r;
+        }
     }
 
     #[test]

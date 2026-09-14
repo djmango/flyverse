@@ -15,6 +15,7 @@
 //! The implementation is split into submodules; this hub only declares them and
 //! re-exports the public surface, so callers keep using `analyze::…` unchanged.
 
+mod attractor;
 mod flight;
 mod probe;
 mod report;

@@ -113,6 +113,14 @@ pub struct World {
     /// control condition for asking whether the connectome does anything with
     /// the rotation signal it is given.
     pub haltere_on: bool,
+    /// Whether the food-odour channel is delivered. FLYVERSE_NO_ODOR=1 silences
+    /// it. This is the control for the question "is the fly's endpoint the fixed
+    /// food source": the odour drives are the ONLY path from `food` into the
+    /// fly's motion (the body integrator is handed `food` and never reads it),
+    /// so silencing them removes the fixed attractor and nothing else. With the
+    /// flag unset the gate multiplies by exactly 1.0, which is bit-identical, so
+    /// a normal run is unchanged.
+    pub odor_on: bool,
     /// Whether the optic-flow channel is delivered. FLYVERSE_NO_FLOW=1 silences
     /// it. Unlike the haltere channel this one is an engineered proxy, and it
     /// responds to rotation immediately through its turn term, so silencing it
@@ -287,6 +295,7 @@ impl World {
             vnc_targets,
             mech_groups: mech,
             haltere_on: std::env::var("FLYVERSE_NO_HALTERE").is_err(),
+            odor_on: std::env::var("FLYVERSE_NO_ODOR").is_err(),
             flow_on: std::env::var("FLYVERSE_NO_FLOW").is_err(),
             retina,
             conn,
@@ -393,8 +402,9 @@ impl World {
         let a = 0.9;
         let pl = [head[0] + lat[0] * a, head[1] + lat[1] * a, head[2]];
         let pr = [head[0] - lat[0] * a, head[1] - lat[1] * a, head[2]];
-        self.odor_l = self.room.odor(pl, self.food);
-        self.odor_r = self.room.odor(pr, self.food);
+        let og = if self.odor_on { 1.0f32 } else { 0.0f32 };
+        self.odor_l = self.room.odor(pl, self.food) * og;
+        self.odor_r = self.room.odor(pr, self.food) * og;
         // Antennal olfactory receptor neurons run up to about 120 Hz on strong
         // odour; below that the rate is proportional to concentration.
         self.d_olf_l.rate_hz = self.odor_l as f64 * 120.0;

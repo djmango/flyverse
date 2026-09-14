@@ -66,5 +66,14 @@ pub fn run(pack: &Path, o: &Options) -> Result<()> {
 
     println!("\n{}", headline(&summary));
     println!("\nwrote {}/trace.csv, summary.json, report.html", o.out.display());
+
+    // Measurement affordance, off by default: FLYVERSE_ATTRACTOR=1 re-reads the
+    // trace just written and reports where the fly ended up relative to the
+    // fixed food position and whether it was steering by the odour gradient.
+    // With the flag unset this is not compiled out but is never called, so a
+    // normal run's output is unchanged.
+    if std::env::var("FLYVERSE_ATTRACTOR").is_ok() {
+        super::attractor::report(&samples, &w);
+    }
     Ok(())
 }
