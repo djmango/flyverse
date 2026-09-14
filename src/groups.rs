@@ -320,12 +320,75 @@ impl GroupRates {
         }
     }
 
-    /// 0..1 normalised activity: group mean rate mapped through a saturating
-    /// curve anchored at `full` Hz.
-    pub fn norm(&self, gi: usize, full_hz: f32) -> f32 {
+    /// The full scale of a group read-out, Hz per neuron.
+    ///
+    /// A read-out is a spike COUNT over the control window divided by the
+    /// window's duration and the group size (see `commit`). The window is
+    /// `window_steps` simulation steps of `DT_MS` ms long, and the LIF
+    /// refractory period (`lif::REFRACTORY_MS` = 2.2 ms) is longer than the
+    /// 2 ms window, so a member neuron contributes at most ONE spike to a
+    /// window. The window therefore holds at most `group_size` spikes, and the
+    /// largest per-neuron rate it can represent is `1000 / window_ms` Hz
+    /// (500 Hz at this window). That ceiling is a property of the measurement,
+    /// not a tuned constant: normalising by it makes the read-out the fraction
+    /// of the pool that fired in the window.
+    pub fn full_scale_hz(&self) -> f32 {
+        1000.0 / (self.window_steps as f32 * DT_MS)
+    }
+
+    /// Fraction of the pool that fired in the last control window, 0..1.
+    ///
+    /// This is the graded spike count itself: `spikes / group_size`, since the
+    /// ceiling is one spike per member per window. It is not a saturating
+    /// transfer function -- the `.clamp` below is a numerical guard that the
+    /// refractory period makes unreachable, not the operating point.
+    ///
+    /// The previous form divided the rate by a fixed per-group anchor (110 Hz
+    /// for the steering pools, 90 for the wing-power pools, 70 for the
+    /// descending ones). Those anchors sit BELOW the rates the pools actually
+    /// run at: the steering pools fire 166.7-333.3 Hz, so every nonzero window
+    /// already exceeded the 110 Hz anchor by at least 1.5x and the read-out
+    /// could only report 0 or 1. The graded count was discarded by the
+    /// divisor, before the clamp could even be blamed: a clamp above a signal
+    /// that never reaches it is not what destroys the signal.
+    pub fn norm(&self, gi: usize) -> f32 {
         if gi == usize::MAX {
             return 0.0;
         }
-        (self.rate_hz[gi] / full_hz).clamp(0.0, 1.0)
+        (self.rate_hz[gi] / self.full_scale_hz()).clamp(0.0, 1.0)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn readout_keeps_the_graded_spike_count() {
+        // The read-out's full scale is one spike per member per window, so the
+        // normalised value IS the fraction of the pool that fired. A pool that
+        // fires k of n members must read k/n; the pre-fix code divided by a
+        // fixed 110 Hz anchor that the pools' real rates (166.7-333.3 Hz)
+        // already exceeded by 1.5x, so every one of these read 1.0.
+        let mut r = GroupRates::new(1, 20); // 20 steps x 0.1 ms = 2 ms window
+        let full = r.full_scale_hz();
+        assert!((full - 500.0).abs() < 1e-3, "2 ms window full scale was {full} Hz");
+
+        for (hz, want) in [(166.7f32, 1.0 / 3.0), (250.0, 0.5), (333.3, 2.0 / 3.0)] {
+            r.rate_hz[0] = hz;
+            let v = r.norm(0);
+            assert!(
+                (v - want).abs() < 2e-3,
+                "{hz} Hz should read {want:.3} (fraction of pool), got {v:.3}"
+            );
+            assert!(v < 1.0, "{hz} Hz must not saturate the read-out");
+        }
+
+        // The ceiling itself reads exactly 1.0, and the guard holds above it.
+        r.rate_hz[0] = full;
+        assert!((r.norm(0) - 1.0).abs() < 1e-6);
+        r.rate_hz[0] = 3.0 * full;
+        assert_eq!(r.norm(0), 1.0);
+        assert_eq!(r.norm(usize::MAX), 0.0);
     }
 }

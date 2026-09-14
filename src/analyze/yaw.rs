@@ -225,8 +225,8 @@ pub fn yaw_probe(pack: &Path, o: &YawOptions) -> Result<()> {
     let (mut n_air, mut n_parked, mut n_corner, mut n_wall, mut n_ceil) = (0u64, 0u64, 0u64, 0u64, 0u64);
     let (mut clamp_roll, mut clamp_pitch, mut clamp_yaw, mut clamp_yaww) = (0u64, 0u64, 0u64, 0u64);
     let (mut sat_l, mut sat_r) = (0u64, 0u64);
-    // Raw (unsmoothed) read-out: the clip is applied here, before the 30 ms
-    // smoothing, so this is where a mis-ranged anchor shows up.
+    // Raw (unsmoothed) read-out: the encoding is applied here, before the
+    // 30 ms smoothing, so this is where a mis-ranged full scale would show up.
     let mut v_raw_sl: Vec<f64> = Vec::new();
     let mut v_raw_sr: Vec<f64> = Vec::new();
     let mut v_cnt_l: Vec<f64> = Vec::new();
@@ -482,20 +482,22 @@ pub fn yaw_probe(pack: &Path, o: &YawOptions) -> Result<()> {
         mean64(&v_sdiff)
     );
     println!(
-        "  raw pools      steering L {:.1} Hz  steering R {:.1} Hz  difference {:>+6.1} Hz  (read-out normaliser 110 Hz)",
+        "  raw pools      steering L {:.1} Hz  steering R {:.1} Hz  difference {:>+6.1} Hz  (read-out full scale {:.0} Hz = one spike per member per window)",
         mean64(&v_sl_hz),
         mean64(&v_sr_hz),
-        mean64(&v_sl_hz) - mean64(&v_sr_hz)
+        mean64(&v_sl_hz) - mean64(&v_sr_hz),
+        w.rates.full_scale_hz()
     );
     println!(
         "  saturation     read-out at 1.0: left {:.1}%  right {:.1}% of airborne windows",
         100.0 * sat_l as f64 / na,
         100.0 * sat_r as f64 / na
     );
-    // The clip happens BEFORE the 30 ms smoothing (sim.rs `smooth_motors`), so
-    // the smoothed figure above understates it badly. What the body actually
-    // receives each 2 ms window is the raw read-out, and that is what is counted
-    // here alongside the spike count that produced it.
+    // The read-out is encoded BEFORE the 30 ms smoothing (sim.rs
+    // `smooth_motors`), so `raw_motors` returns what the body actually
+    // receives each 2 ms window and the smoothed figure above is a lagging
+    // view of it. Both are counted here alongside the spike count that
+    // produced them.
     println!(
         "  RAW read-out   L mean {:.4} at 1.0 in {:.1}% of windows ({} neurons, {:.2} spikes/window mean)",
         mean64(&v_raw_sl),
@@ -511,9 +513,10 @@ pub fn yaw_probe(pack: &Path, o: &YawOptions) -> Result<()> {
         mean64(&v_cnt_r)
     );
     println!(
-        "  clip           raw rate that saturates the read-out = 110 Hz; measured pool rate {:.1} Hz = {:.2}x the anchor",
+        "  range          measured pool rate {:.1} Hz = {:.2} of the read-out's {:.0} Hz full scale (no anchor)",
         mean64(&v_sl_hz),
-        mean64(&v_sl_hz) / 110.0
+        mean64(&v_sl_hz) / w.rates.full_scale_hz() as f64,
+        w.rates.full_scale_hz()
     );
     println!(
         "  agencyless?    horizontal speed < 10 mm/s in {:.1}% of airborne windows; touching two walls {:.1}%, a wall {:.1}%, ceiling {:.1}%",

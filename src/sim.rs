@@ -47,8 +47,12 @@ pub fn vnc_targets_path() -> PathBuf {
         .unwrap_or_else(|_| PathBuf::from(VNC_TARGETS))
 }
 
-/// Motor read-outs are smoothed: a DLM/DVM pool is 12 neurons, so a 2 ms
-/// window is all-or-nothing, while real muscle activation is continuous.
+/// Motor read-outs are smoothed: the connectome's read-out is instantaneous
+/// while real muscle activation is not, and a small pool firing at a few
+/// hundred Hz is spiky window to window. This is the transduction lag between
+/// motor drive and muscle, not a filter applied to manufacture a graded signal
+/// out of a saturated one (the encoding in `GroupRates::norm` is what makes
+/// the read-out graded).
 const MOTOR_TAU_S: f32 = 0.030;
 
 fn read_u64s(path: &Path) -> Result<Vec<u64>> {
@@ -62,19 +66,20 @@ fn read_u64s(path: &Path) -> Result<Vec<u64>> {
         .collect())
 }
 
-/// A population read-out: a named neuron group plus the per-neuron rate that
-/// counts as "fully on" for it.
+/// A population read-out: a named neuron group. The normalised value is the
+/// fraction of the group that fired in the last control window (see
+/// `GroupRates::norm`), so there is no per-group anchor to keep in step with
+/// the rates the pools actually run at.
 pub struct Out {
     gi: usize,
-    full_hz: f32,
 }
 
 impl Out {
-    fn new(g: &Groups, name: &str, full_hz: f32) -> Out {
-        Out { gi: g.idx(name), full_hz }
+    fn new(g: &Groups, name: &str) -> Out {
+        Out { gi: g.idx(name) }
     }
     pub fn norm(&self, r: &GroupRates) -> f32 {
-        r.norm(self.gi, self.full_hz)
+        r.norm(self.gi)
     }
     /// Population mean rate in Hz for this read-out.
     pub fn hz(&self, r: &GroupRates) -> f32 {
@@ -256,19 +261,19 @@ impl World {
         );
 
         Ok(World {
-            o_pow_l: Out::new(&groups, "motor_flight_power_left", 90.0),
-            o_pow_r: Out::new(&groups, "motor_flight_power_right", 90.0),
-            o_steer_l: Out::new(&groups, "motor_flight_steering_left", 110.0),
-            o_steer_r: Out::new(&groups, "motor_flight_steering_right", 110.0),
-            o_walk_l: Out::new(&groups, "motor_walking_left", 90.0),
-            o_walk_r: Out::new(&groups, "motor_walking_right", 90.0),
-            o_land_l: Out::new(&groups, "motor_landing_left", 90.0),
-            o_land_r: Out::new(&groups, "motor_landing_right", 90.0),
-            o_mn9: Out::new(&groups, "feeding_mn9", 90.0),
-            o_dn02: Out::new(&groups, "flight_dng02_left", 70.0),
-            o_dn07: Out::new(&groups, "flight_dng07_left", 70.0),
-            o_sapp: Out::new(&groups, "flight_state_sapp_left", 70.0),
-            o_land_dn: Out::new(&groups, "landing_dn_left", 70.0),
+            o_pow_l: Out::new(&groups, "motor_flight_power_left"),
+            o_pow_r: Out::new(&groups, "motor_flight_power_right"),
+            o_steer_l: Out::new(&groups, "motor_flight_steering_left"),
+            o_steer_r: Out::new(&groups, "motor_flight_steering_right"),
+            o_walk_l: Out::new(&groups, "motor_walking_left"),
+            o_walk_r: Out::new(&groups, "motor_walking_right"),
+            o_land_l: Out::new(&groups, "motor_landing_left"),
+            o_land_r: Out::new(&groups, "motor_landing_right"),
+            o_mn9: Out::new(&groups, "feeding_mn9"),
+            o_dn02: Out::new(&groups, "flight_dng02_left"),
+            o_dn07: Out::new(&groups, "flight_dng07_left"),
+            o_sapp: Out::new(&groups, "flight_state_sapp_left"),
+            o_land_dn: Out::new(&groups, "landing_dn_left"),
             d_vnc,
             d_olf_l,
             d_olf_r,
@@ -572,7 +577,8 @@ impl World {
         }
     }
 
-    /// 12 region bars for the HUD: mean normalised rate per region bucket.
+    /// 12 region bars for the HUD: mean read-out (fraction of the pool firing)
+    /// per region bucket.
     pub fn region_bars(&self) -> Vec<f32> {
         let mut num = [0f32; 12];
         let mut den = [0f32; 12];
@@ -581,7 +587,7 @@ impl World {
             if reg >= 12 {
                 continue;
             }
-            num[reg] += self.rates.norm(gi, 80.0);
+            num[reg] += self.rates.norm(gi);
             den[reg] += 1.0;
         }
         (0..12)
