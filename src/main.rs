@@ -45,7 +45,8 @@ fn usage() -> ! {
          \x20 flight-test  [--seconds N] [--seed S] [--altitude MM]\n\
          \x20 yaw-probe    [--seconds N] [--seed S] [--every N]   instrumented yaw: torque, rates, motor asymmetry\n\
          \x20 haltere-probe [--seed S] [--trials N] [--amplitude R] [--out FILE]\n\
-         \x20 loom-probe    [--seed S] [--trials N] [--levels 0.25,0.5,1,2] [--out FILE]\n\
+         \x20 loom-probe    [--seed S] [--trials N] [--levels 0.25,0.5,1,2] [--retinal 1] [--out FILE]\n\
+         \x20 loom-diag     [--seed S] [--seconds N]   per-eye loom laterality, scalar vs retinotopic\n\
          \x20 stim-sweep    [--seconds N] [--seed S] [--hz 0,10,50,150,300,600]   drive the vnc_sensory replay and read the motor pools\n\
          \x20 mn-audit      [--group NAME] [--seconds N] [--seed S] [--top N]   per-neuron rate + E/I input of one motor pool\n\
          \x20 serve   [--pack DIR] [--port N] [--seconds N] [--rate HZ] [--seed S] [--targets FILE]\n"
@@ -71,6 +72,11 @@ impl Args {
     }
     fn get(&self, k: &str) -> Option<&str> {
         self.map.get(k).map(|s| s.as_str())
+    }
+    /// Presence of a flag. Every flag in this parser consumes a value, so a
+    /// boolean is passed as `--name 1`.
+    fn has(&self, k: &str) -> bool {
+        self.map.contains_key(k)
     }
     fn u64(&self, k: &str, d: u64) -> u64 {
         self.get(k).and_then(|v| v.parse().ok()).unwrap_or(d)
@@ -333,6 +339,64 @@ fn main() -> Result<()> {
             };
             analyze::rotation_probe(&pack_path, &o, &p)
         }
+        "loom-diag" => {
+            // Measurement only: how lateral is the closed loop's own loom
+            // signal? Runs the fly twice from the same seed, once with the
+            // shipped shared scalar and once with each eye's own retinotopic
+            // signal, and reports the per-eye pair. No stimulus is imposed and
+            // nothing is written; it reads `World::retina_loom_pair`.
+            let seconds = args.f64("seconds", 12.0);
+            let seed = args.u64("seed", 7);
+            let steps = ((seconds / sim::WINDOW_S as f64) as u64).max(1);
+            for (tag, on) in [("scalar (shipped)", false), ("per-eye retinotopic", true)] {
+                let mut w = sim::World::new(&pack_path, seed, None)?;
+                w.set_loom_retinotopic(on);
+                let mut n = 0u64;
+                let mut diff = 0u64;
+                let mut sum = [0.0f64; 2];
+                let mut sq = [0.0f64; 2];
+                let mut adiff = 0.0f64;
+                let mut air = 0u64;
+                let mut lsum = [0.0f64; 2];
+                for _ in 0..steps {
+                    w.advance();
+                    let (l, r) = w.retina_loom_pair();
+                    let (ml, mr) = w.retina.mean_lum_by_eye();
+                    lsum[0] += ml as f64;
+                    lsum[1] += mr as f64;
+                    sum[0] += l as f64;
+                    sum[1] += r as f64;
+                    sq[0] += (l * l) as f64;
+                    sq[1] += (r * r) as f64;
+                    let d = (l - r).abs();
+                    adiff += d as f64;
+                    if d > 0.05 {
+                        diff += 1;
+                    }
+                    if matches!(
+                        w.body.mode,
+                        crate::body::Mode::Takeoff | crate::body::Mode::Cruise | crate::body::Mode::Landing
+                    ) {
+                        air += 1;
+                    }
+                    n += 1;
+                }
+                let m = |k: usize| sum[k] / n as f64;
+                let sd = |k: usize| (sq[k] / n as f64 - m(k) * m(k)).max(0.0).sqrt();
+                println!(
+                    "loom-diag seed {seed} {seconds:.0}s [{tag}]: loomL mean {:.3} sd {:.3}, \
+                     loomR mean {:.3} sd {:.3}, mean |L-R| {:.4}, samples |L-R|>0.05 {:>5.1}% \
+                     ({} air of {n})",
+                    m(0), sd(0), m(1), sd(1), adiff / n as f64,
+                    100.0 * diff as f64 / n as f64, air
+                );
+                println!(
+                    "                                   mean lum L {:.3} R {:.3}",
+                    lsum[0] / n as f64, lsum[1] / n as f64
+                );
+            }
+            Ok(())
+        }
         "loom-probe" => {
             // Open-loop looming stimulus probe: the closed loop cannot ask
             // whether the visual steering pathway works, because there the loom
@@ -359,6 +423,7 @@ fn main() -> Result<()> {
                 interval_s: args.f64("interval", 0.25),
                 response_ms: args.f64("response", 200.0),
                 levels,
+                retinal: args.has("retinal"),
             };
             analyze::loom_probe(&pack_path, &o, &p)
         }
