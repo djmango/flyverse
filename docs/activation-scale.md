@@ -1,5 +1,37 @@
 # The scale of `a(t)`: what the flight motor neuron actually fires at
 
+> **SUPERSEDED IN PART — read `docs/force-rate-map.md` alongside this note.**
+> This note is the record of the SCALE fix and is left as written. Two of its
+> claims were subsequently overturned or revised, and the corrections are:
+>
+> 1. **"The SHAPE is not the defect" (§3, §7) is no longer the finding.** The
+>    shape *was* a defect: the linear-plus-floor map produced force as
+>    `(0.12 + 0.88a)^2`, exponent 2 over the rate, while `motor-mn-calibration.md`
+>    §6 handed off a pool that was now graded and could not fly. Gordon &
+>    Dickinson 2006 measured a COMPRESSIVE relation (1.7x power per 3x rate,
+>    exponent 0.483), so the model was both too steep and in the wrong direction.
+>    The map is now `STROKE_AMP_MAX * a^0.2415`; see `docs/force-rate-map.md` §1-3.
+> 2. **The anchor is now 12 Hz/neuron, not 20 Hz** (`POWER_MN_FULL_STROKE_HZ`).
+>    `a = 1` is the full-stroke endpoint pinned by physical-model-spec.md §6.5, so
+>    the anchor is the rate of *maximal activation*, and the measured in-flight
+>    working range tops out at 12 Hz (Huerkey et al. 2023 Fig. 1c). The "up to
+>    ~20 Hz" this note used is a *manoeuvre* excursion; it is retained as
+>    `POWER_MN_MANOEUVRE_MAX_HZ` for reporting only. Consequence for the numbers
+>    below: every "x physiological maximum (20 Hz)" column and every
+>    pool-rate-as-a-multiple-of-the-ceiling figure should be re-read against
+>    **12 Hz** (i.e. multiplied by 20/12 = 1.67). The Hz figures themselves —
+>    the substantive ones — are unaffected, and §4.1's hand-off in
+>    `motor-mn-calibration.md` was then executed: see `docs/force-rate-map.md`.
+> 3. **§4's "the fly flies by saturating" and §6's behaviour table are the state
+>    before the motor calibration**, not the current one. The pool was calibrated
+>    per-cell shortly after (`docs/motor-mn-calibration.md`, gain 0.0216), which
+>    removed the rail and stopped the fly flying — and the map change here is what
+>    restored flight at a physiological rate.
+>
+> What still stands from this note: the SCALE diagnosis itself (500 Hz is a
+> measurement ceiling, not a firing rate; 25x error), the citation table in §1,
+> and the per-group `phys_full_scale_hz` mechanism.
+
 This note grounds the two remaining links in the activation chain that decides
 whether the fly can fly, after the motor read-out and the wing force coefficient
 were fixed:
