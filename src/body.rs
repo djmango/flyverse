@@ -351,6 +351,19 @@ impl Body {
         let dt_ms = dt * 1000.0;
 
         // 1. Wing motor neurons -> stroke amplitude, through the muscle.
+        //
+        // The map is the spec's activation set point, not a fitted curve: the
+        // spec defines the activation a (a linear interpolation between the
+        // resting and full stroke amplitude) and then fixes its endpoint —
+        // `muscle activation gain k_a: scale to give F/W≈1.2 at a=1`
+        // (physical-model-spec.md §6.5, [D] from §6.3) — so a = 1 means the
+        // full stroke amplitude and a = 0 the resting floor. What the spec
+        // does *not* pin is the conversion from the decoded motor rate to a:
+        // §5.1 says only that the neurons set the activation level. The
+        // read-out is the fraction of the wing-power pool that fired in the
+        // 2 ms control window (groups.rs), and this code uses that fraction
+        // directly as a. That is an [E] choice and the one remaining unknown in
+        // the chain; see docs/wing-force-calibration.md.
         let a = 1.0 - (-dt / MUSCLE_TAU).exp();
         let span = wing::STROKE_AMP_MAX - wing::STROKE_AMP_MIN;
         let amp_l = wing::STROKE_AMP_MIN + span * m.flight_power_l.clamp(0.0, 1.0);

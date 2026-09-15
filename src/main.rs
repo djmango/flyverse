@@ -45,6 +45,7 @@ fn usage() -> ! {
          \x20 flight-test  [--seconds N] [--seed S] [--altitude MM]\n\
          \x20 yaw-probe    [--seconds N] [--seed S] [--every N]   instrumented yaw: torque, rates, motor asymmetry\n\
          \x20 haltere-probe [--seed S] [--trials N] [--amplitude R] [--out FILE]\n\
+         \x20 stim-sweep    [--seconds N] [--seed S] [--hz 0,10,50,150,300,600]   drive the vnc_sensory replay and read the motor pools\n\
          \x20 serve   [--pack DIR] [--port N] [--seconds N] [--rate HZ] [--seed S] [--targets FILE]\n"
     );
     std::process::exit(2)
@@ -338,8 +339,8 @@ fn main() -> Result<()> {
             let mut w = sim::World::new(&pack_path, seed, None)?;
             println!("{} neurons, {} edges", w.conn.n, w.conn.m);
             println!(
-                "vnc_sensory stimulus set: {} neurons at 150 Hz",
-                w.vnc_targets
+                "vnc_sensory stimulus set: {} neurons at {} Hz",
+                w.vnc_targets, w.vnc_hz
             );
             for name in [
                 "olfaction_left", "olfaction_right", "taste_sugar",
@@ -414,6 +415,84 @@ fn main() -> Result<()> {
             rows.sort_by(|a, b| b.2.partial_cmp(&a.2).unwrap_or(std::cmp::Ordering::Equal));
             for (name, size, hz) in rows {
                 println!("  {name:<30} n={size:<6} {hz:8.2} Hz");
+            }
+            Ok(())
+        }
+        "stim-sweep" => {
+            // Measurement: how the motor pools respond to the vnc_sensory
+            // replay rate. The drive rate is the ONLY thing that changes
+            // between settings -- the target set, wiring, seed and starting
+            // state are held fixed -- so a recruitment curve read off here is
+            // attributable to the drive. Off by default: it is a separate
+            // subcommand, never on the normal run path.
+            let seconds = args.f64("seconds", 12.0);
+            let seed = args.u64("seed", 7);
+            let hzs: Vec<f64> = args
+                .get("hz")
+                .unwrap_or("0,10,50,150,300,600")
+                .split(',')
+                .filter_map(|s| s.trim().parse().ok())
+                .collect();
+            let mut w = sim::World::new(&pack_path, seed, None)?;
+            let n = w.conn.n as f64;
+            let windows = ((seconds / sim::WINDOW_S as f64) as u64).max(1);
+            println!(
+                "stim-sweep: {} neurons, {} edges, {} stimulus targets, seed {}, {:.1} s per setting",
+                w.conn.n, w.conn.m, w.vnc_targets, seed, seconds
+            );
+            println!(
+                "{:>7} {:>8} {:>9} {:>8} {:>8} {:>9} {:>8} {:>8} {:>8} {:>6} {:>6} {:>8}",
+                "hz", "net_hz", "pow_norm", "pow_pk", "pow_hz", "str_norm", "str_pk", "str_hz", "lift/wt", "tkoff", "air%", "maxalt"
+            );
+            for &hz in &hzs {
+                w.reset();
+                w.set_vnc_hz(hz);
+                let mut sum_spikes: u64 = 0;
+                let (mut pn_sum, mut pn_pk, mut phz_sum) = (0f64, 0f64, 0f64);
+                let (mut sn_sum, mut sn_pk, mut shz_sum) = (0f64, 0f64, 0f64);
+                let (mut lw_sum, mut max_alt) = (0f64, 0f64);
+                let t0_takeoffs = w.body.takeoffs;
+                let mut air = 0u64;
+                for _ in 0..windows {
+                    w.advance();
+                    sum_spikes += w.window_spikes.len() as u64;
+                    let pn = w.group_norm("motor_flight_power_left") as f64;
+                    let sn = w.group_norm("motor_flight_steering_left") as f64;
+                    pn_sum += pn;
+                    pn_pk = pn_pk.max(pn);
+                    phz_sum += w.group_hz("motor_flight_power_left") as f64;
+                    sn_sum += sn;
+                    sn_pk = sn_pk.max(sn);
+                    shz_sum += w.group_hz("motor_flight_steering_left") as f64;
+                    let wt = w.body.weight();
+                    if wt > 0.0 {
+                        lw_sum += (w.body.wing_lift_world() / wt) as f64;
+                    }
+                    max_alt = max_alt.max(w.body.pos[2] as f64);
+                    if matches!(
+                        w.body.mode,
+                        body::Mode::Takeoff | body::Mode::Cruise | body::Mode::Landing
+                    ) {
+                        air += 1;
+                    }
+                }
+                let d = windows as f64;
+                let net_hz = sum_spikes as f64 / n / (d * sim::WINDOW_S as f64);
+                println!(
+                    "{:>7} {:>8.2} {:>9.3} {:>8.3} {:>8.1} {:>9.3} {:>8.3} {:>8.1} {:>8.3} {:>6} {:>6.1} {:>8.1}",
+                    hz,
+                    net_hz,
+                    pn_sum / d,
+                    pn_pk,
+                    phz_sum / d,
+                    sn_sum / d,
+                    sn_pk,
+                    shz_sum / d,
+                    lw_sum / d,
+                    w.body.takeoffs - t0_takeoffs,
+                    100.0 * air as f64 / d,
+                    max_alt
+                );
             }
             Ok(())
         }

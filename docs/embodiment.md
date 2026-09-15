@@ -28,10 +28,17 @@ that fails if an altitude controller is reintroduced.
 **Wing aerodynamics** (`src/wing.rs`). A quasi-steady blade-element cycle mean:
 
 ```
-F = 1/2 * rho * C_F(alpha) * <U^2> * S
+F = 1/2 * rho * C_L(alpha) * <U^2> * S
 <U^2> = (Phi/2)^2 * omega^2 / 2 * R^2 * k2 + 1/2 * V^2
-C_F = sqrt(C_L^2 + C_D^2), from the measured Drosophila force coefficients
+C_L from the measured Drosophila force coefficients
 ```
+
+`C_L` is the force coefficient along the stroke-plane **normal** (the lift direction).
+The blade element is a vector sum of a lift and a drag term (spec §1.3), and the drag
+term lies in the stroke plane and reverses every half stroke, so it contributes nothing
+to the cycle mean. An earlier revision used the resultant `sqrt(C_L^2 + C_D^2)` along the
+normal, which overstated the lift by 35 % at alpha = 40 deg and failed the spec's own
+mandatory hover check (§6.3). See [`wing-force-calibration.md`](wing-force-calibration.md).
 
 The wing flips its angle of attack at each stroke reversal, so the force keeps
 its sign through both half strokes and the cycle mean does not cancel. Every
@@ -48,10 +55,13 @@ constant is measured or derived, not tuned:
 | `FLY_MASS` | 0.983 mg | flybody / Vaxenburg et al. 2025 |
 | `C_L`, `C_D` | functions of alpha | Sane & Dickinson 2002, Re ≈ 115 |
 
-At full stroke one wing produces about 1.8× half the body weight. That surplus is
+At full stroke one wing produces about 1.33× half the body weight. That surplus is
 what lets a fly climb and carry a load; the earlier estimated planform (1.19 mm²)
 put it at 1.05×, which is why the fly could barely hover. That was a measurement
-correction, not a tuning knob: the assumed chord was 29 % short.
+correction, not a tuning knob: the assumed chord was 29 % short. (The measured
+planform first read 1.79× because the lift was built from the resultant coefficient
+`sqrt(C_L^2 + C_D^2)`; correcting that to `C_L` brought full-stroke lift to 1.33×,
+inside the spec's 1–1.3 hover band. See `wing-force-calibration.md`.)
 
 **Stroke-plane tilt.** The steering motor neurons set each wing's stroke-plane
 tilt, and the force vector rotates with it. Common drive tilts both planes
@@ -79,6 +89,12 @@ the real neurons, from `assets/male_cns_v1_mechanosensory_io.json`, merged at
 load time. `FLYVERSE_NO_HALTERE=1` disconnects them and is the control condition.
 
 ## What it does now
+
+> **Superseded.** The table below was measured while the motor read-out was pinned at
+> 1.0 by a mis-set divisor, which forced full stroke amplitude and made the fly "fly".
+> With the read-out faithful the fly does not leave the ground: 12 s seed 7 gives 0
+> takeoffs, 0 % cruise, 100 % ground, 0.0 mm altitude. See
+> [`wing-force-calibration.md`](wing-force-calibration.md) §4.
 
 60 s, seed 7, full model, haltere afferents connected (175 M spikes):
 
@@ -147,7 +163,7 @@ forces and the body's inertia rather than of a gain. That is a weaker claim than
 
 ## Bugs found while doing this
 
-Two, both in this repository's own code, both caught by measurement:
+Four, all in this repository's own code, all caught by measurement:
 
 1. **The wing planform was 42 % too small.** The area was estimated as
    `length * chord * 0.62` with a literature chord of 0.80 mm. Measuring the
@@ -163,7 +179,22 @@ Two, both in this repository's own code, both caught by measurement:
    was `max_speed_mm_s = 3999.6875` against a 4000 mm/s clamp. `aerodynamic_
    damping_slows_a_spinning_body` now pins the direction.
 
-A third fix was to the analysis rather than the model: the turn rate was being
+3. **The stroke-plane-normal force used the resultant coefficient.** `C_F =
+   sqrt(C_L^2 + C_D^2)` was applied along the stroke-plane normal, so the drag
+   magnitude was spent in the lift direction and the lift was 35 % too high at
+   α = 40°. The spec's mandatory §6.3 self-check (full stroke must give
+   `F_lift/(W/2) ≈ 1.2`) read 1.79 against it. Now `C_L`, giving 1.33, and
+   `normal_force_reproduces_the_specs_mandatory_self_check` fails on the old
+   form. Full numbers: [`wing-force-calibration.md`](wing-force-calibration.md).
+
+4. **The motor read-out was divided by a mis-set anchor.** `groups.rs` normalised
+   each motor pool by a fixed 70-110 Hz divisor that the pools already exceeded,
+   so every non-zero window read 1.0 and the wings were driven to full stroke
+   amplitude whatever the connectome did. With the graded count restored the fly
+   never leaves the ground, and the binding constraint moved to whether the
+   connectome commands enough power at all — which is the open question now.
+
+A separate fix was to the analysis rather than the model: the turn rate was being
 computed by differencing the Euler yaw angle. Once the body pitches, the Euler
 chart wraps and the quotient invents rates that the body never had. Every
 turning number now comes from the body's actual angular velocity.

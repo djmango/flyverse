@@ -20,8 +20,8 @@ pub fn run(pack: &Path, o: &Options) -> Result<()> {
     let stride = o.sample_every.max(1);
 
     println!(
-        "analyze: {} neurons, {} edges, {} stimulus targets at 150 Hz",
-        w.conn.n, w.conn.m, w.vnc_targets
+        "analyze: {} neurons, {} edges, {} stimulus targets at {} Hz",
+        w.conn.n, w.conn.m, w.vnc_targets, w.vnc_hz
     );
     println!(
         "analyze: {} s of simulated time = {} control windows of {:.1} ms (sample every {})",

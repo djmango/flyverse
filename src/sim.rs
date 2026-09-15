@@ -40,6 +40,22 @@ const SPIKE_MAX: usize = 24_000;
 /// paths. Override with `FLYVERSE_VNC_TARGETS`.
 pub const VNC_TARGETS: &str = "data/targets_vnc_sensory.u64";
 
+/// Default vnc_sensory drive rate, Hz. This is the working point the NumPy
+/// reference engine was driven at. Override with `FLYVERSE_STIM_HZ` (a
+/// measurement knob: it only changes the constant rate the reference set is
+/// replayed at, never the wiring).
+pub const VNC_HZ_DEFAULT: f64 = 150.0;
+
+/// Resolve the vnc_sensory drive rate: `$FLYVERSE_STIM_HZ`, else the 150 Hz
+/// working point. Parsed as f64; an unparseable value falls back to the
+/// default rather than silently driving at 0 Hz.
+pub fn vnc_rate_hz() -> f64 {
+    std::env::var("FLYVERSE_STIM_HZ")
+        .ok()
+        .and_then(|v| v.parse::<f64>().ok())
+        .unwrap_or(VNC_HZ_DEFAULT)
+}
+
 /// Resolve the vnc_sensory target set: `$FLYVERSE_VNC_TARGETS`, else VNC_TARGETS.
 pub fn vnc_targets_path() -> PathBuf {
     std::env::var("FLYVERSE_VNC_TARGETS")
@@ -112,6 +128,10 @@ pub struct World {
     pub step: u64,
     /// Size of the reference vnc_sensory stimulus set.
     pub vnc_targets: usize,
+    /// Drive rate actually used for the reference vnc_sensory set, Hz. Set
+    /// from `FLYVERSE_STIM_HZ` at construction (default 150); `set_vnc_hz`
+    /// changes it mid-run for the drive sweep.
+    pub vnc_hz: f64,
     /// Number of mechanosensory groups merged in from the inventory.
     pub mech_groups: usize,
     /// Whether the haltere afferents are wired to the body. Off is the
@@ -221,8 +241,9 @@ impl World {
         if vnc_ids.is_empty() {
             anyhow::bail!("vnc_sensory target set matched no neurons in the pack");
         }
-        let d_vnc = Drive::new(vnc_ids, 150.0, seed ^ 0x51ED_2701);
+        let d_vnc = Drive::new(vnc_ids, vnc_rate_hz(), seed ^ 0x51ED_2701);
         let vnc_targets = d_vnc.targets.len();
+        let vnc_hz = d_vnc.rate_hz;
         let d_olf_l = mk("olfaction_left", 0.0, 2);
         let d_olf_r = mk("olfaction_right", 0.0, 3);
         let d_taste = mk("taste_sugar", 0.0, 4);
@@ -298,6 +319,7 @@ impl World {
             stim: Vec::with_capacity(512),
             window_spikes: Vec::with_capacity(4096),
             vnc_targets,
+            vnc_hz,
             mech_groups: mech,
             haltere_on: std::env::var("FLYVERSE_NO_HALTERE").is_err(),
             odor_on: std::env::var("FLYVERSE_NO_ODOR").is_err(),
@@ -514,7 +536,7 @@ impl World {
             flow_r: self.flow_r,
             loom: self.loom(),
             taste_hz: self.d_taste.rate_hz as f32,
-            vnc_hz: 150.0,
+            vnc_hz: self.vnc_hz as f32,
         }
     }
 
@@ -556,6 +578,44 @@ impl World {
             land_r: self.o_land_r.norm(r),
             mn9: self.o_mn9.norm(r),
         }
+    }
+
+    /// Reset the closed loop to its initial condition without rebuilding the
+    /// connectome: the same reset the live server performs. Used by the drive
+    /// sweep to give every stimulus setting the same starting state.
+    pub fn reset(&mut self) {
+        self.lif.reset();
+        self.body.reset();
+        self.body.pos = [-220.0, -150.0, 0.0];
+        self.body.yaw = 0.6;
+        self.prev_yaw = 0.6;
+        self.dn_filt = 0.0;
+        self.land_filt = 0.0;
+        self.sm = [0.0; 9];
+        self.step = 0;
+    }
+
+    /// Change the vnc_sensory replay rate, Hz. Measurement only: it changes
+    /// the constant rate the fixed reference set is driven at, nothing else.
+    pub fn set_vnc_hz(&mut self, hz: f64) {
+        self.vnc_hz = hz;
+        self.d_vnc.rate_hz = hz;
+    }
+
+    /// Per-neuron firing rate of a named group in the last control window, Hz.
+    /// 0 for a group that is absent from the annotation.
+    pub fn group_hz(&self, name: &str) -> f32 {
+        let gi = self.groups.idx(name);
+        if gi == usize::MAX {
+            return 0.0;
+        }
+        *self.rates.rate_hz.get(gi).unwrap_or(&0.0)
+    }
+
+    /// Fraction of a named pool that fired in the last control window, 0..1
+    /// (the graded spike count the motor read-out uses). 0 for an absent group.
+    pub fn group_norm(&self, name: &str) -> f32 {
+        self.rates.norm(self.groups.idx(name))
     }
 
     fn smooth_motors(&mut self) {
@@ -611,7 +671,7 @@ impl World {
             "sim_ms": sim_s * 1000.0,
             "wall_rt": rt,
             "paused": paused,
-            "stimulus": "vnc_sensory 150 Hz + odour/flow/loom from the room",
+            "stimulus": format!("vnc_sensory {} Hz + odour/flow/loom from the room", self.vnc_hz),
             "body": {
                 "pos": b.pos,
                 "quat": b.quat(),
