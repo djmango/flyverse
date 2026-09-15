@@ -46,6 +46,7 @@ fn usage() -> ! {
          \x20 yaw-probe    [--seconds N] [--seed S] [--every N]   instrumented yaw: torque, rates, motor asymmetry\n\
          \x20 haltere-probe [--seed S] [--trials N] [--amplitude R] [--out FILE]\n\
          \x20 stim-sweep    [--seconds N] [--seed S] [--hz 0,10,50,150,300,600]   drive the vnc_sensory replay and read the motor pools\n\
+         \x20 mn-audit      [--group NAME] [--seconds N] [--seed S] [--top N]   per-neuron rate + E/I input of one motor pool\n\
          \x20 serve   [--pack DIR] [--port N] [--seconds N] [--rate HZ] [--seed S] [--targets FILE]\n"
     );
     std::process::exit(2)
@@ -495,6 +496,21 @@ fn main() -> Result<()> {
                 );
             }
             Ok(())
+        }
+        "mn-audit" => {
+            // Why does the flight-power pool fire at 150-330 Hz when a real
+            // DLM fires at 3-20 Hz? Per-neuron rate + the E/I composition of
+            // the pool's input. Measurement only; off the normal run path.
+            let o = analyze::AuditOptions {
+                seconds: args.f64("seconds", 4.0),
+                seed: args.u64("seed", 7),
+                group: args
+                    .get("group")
+                    .unwrap_or("motor_flight_power_left")
+                    .to_string(),
+                top: args.u64("top", 20) as usize,
+            };
+            analyze::mn_audit(&pack_path, &o)
         }
         other => {
             eprintln!("unknown command: {other}");

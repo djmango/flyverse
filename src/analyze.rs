@@ -17,6 +17,7 @@
 
 mod attractor;
 mod flight;
+mod mn_audit;
 mod probe;
 mod report;
 mod run;
@@ -26,6 +27,7 @@ mod trace;
 mod yaw;
 
 pub use flight::flight_test;
+pub use mn_audit::{mn_audit, AuditOptions};
 pub use probe::{rotation_probe, ProbeOptions};
 pub use run::run;
 pub use trace::{Options, Sample};
