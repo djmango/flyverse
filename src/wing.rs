@@ -124,24 +124,44 @@ pub fn coeffs(alpha_deg: f32) -> (f32, f32) {
     (cl, cd)
 }
 
-/// Cycle-mean force magnitude from one wing, in mg*mm/s^2.
+/// Cycle-mean force along the stroke-plane normal from one wing, in
+/// mg*mm/s^2. This is the lift force: `wing_force_vector` aims it along the
+/// stroke-plane normal, which is what the steering tilt rotates.
 ///
-/// The wing sweeps sinusoidally with amplitude `stroke_amp` (radians) at
-/// `freq_hz`. Because the wing flips its angle of attack at each stroke
-/// reversal, the aerodynamic force keeps the same sign through both half
-/// strokes, so the cycle mean does not cancel the way a fixed-pitch
-/// oscillation would. The mean of `sin^2` over a cycle is 1/2, which is where
-/// the leading 1/2 in the expression below comes from.
+/// The wing sweeps sinusoidally with amplitude `stroke_amp` (radians, the
+/// full peak-to-peak angle) at `freq_hz`. The spec integrates the blade
+/// element as a *vector* sum (physical-model-spec.md §1.3):
 ///
-/// Departures from this are first order in the wing's induced velocity, which
-/// is why the induced-flow term below is a modest correction rather than the
-/// dominant term.
+///     dF = 1/2 rho c |U|^2 [ C_L(alpha) n_L + C_D(alpha) n_D ] dr
+///
+/// The wing sweeps *in* the stroke plane, so the section velocity `U` lies in
+/// that plane; `n_D = -U/|U|` therefore lies in the stroke plane too, while
+/// `n_L` (perpendicular to `U`) is the stroke-plane **normal**. The cycle
+/// mean separates cleanly:
+///
+///   - the drag term reverses with `U` at every half stroke and averages to
+///     zero in every direction, so it contributes nothing to the mean force;
+///   - the lift term keeps one sign, because the wing flips its angle of
+///     attack at each stroke reversal, and gives
+///     `<F_n> = 1/2 rho C_L(alpha) <U^2> S`.
+///
+/// The mean of `sin^2` over a cycle is 1/2, which is where the leading 1/2 in
+/// the `u2` expression below comes from; `<U^2>` is the second-moment-weighted
+/// mean squared section speed. The induced-flow term is a modest correction
+/// rather than the dominant term, which is why it is first order.
+///
+/// Building the normal force out of the *resultant* coefficient
+/// `sqrt(C_L^2 + C_D^2)` instead — as an earlier revision did — applies the
+/// drag magnitude to the lift direction and overstates the normal force by
+/// `sqrt(C_L^2 + C_D^2) / C_L`, about 35 % at alpha = 40 deg. The spec's
+/// mandatory self-check (§6.3) integrates `1/2 rho C_L omega_rms^2 S R^2/3`
+/// and expects `F_lift/(W/2) ~ 1.2`; the resultant form gave 1.79.
+/// `normal_force_reproduces_the_specs_mandatory_self_check` pins this.
 pub fn wing_force_magnitude(stroke_amp: f32, freq_hz: f32, airspeed: f32, alpha_deg: f32) -> f32 {
     if stroke_amp <= 0.0 {
         return 0.0;
     }
-    let (cl, cd) = coeffs(alpha_deg);
-    let cf = (cl * cl + cd * cd).sqrt();
+    let (cl, _cd) = coeffs(alpha_deg);
     let omega = std::f32::consts::TAU * freq_hz;
     // Mean squared section velocity, weighted by the wing's second moment:
     // <U^2> = (amp/2)^2 * omega^2 / 2 * R^2 * k2, and the section speed
@@ -150,9 +170,7 @@ pub fn wing_force_magnitude(stroke_amp: f32, freq_hz: f32, airspeed: f32, alpha_
     let half = stroke_amp * 0.5;
     let u2 = half * half * omega * omega * 0.5 * WING_LEN * WING_LEN * WING_K2;
     let u2 = u2 + 0.5 * airspeed * airspeed;
-    // Leading-edge suction is incomplete on a real wing, so the resultant is
-    // built from the resultant coefficient rather than cl alone.
-    0.5 * RHO * cf * u2 * WING_AREA
+    0.5 * RHO * cl * u2 * WING_AREA
 }
 
 /// A wing's force vector in the body frame.
@@ -347,6 +365,66 @@ mod tests {
             ratio > 1.2,
             "one wing at full stroke gives only {ratio:.3}x half the body weight"
         );
+    }
+
+    #[test]
+    fn normal_force_reproduces_the_specs_mandatory_self_check() {
+        // docs/physical-model-spec.md §6.3 is an explicit, no-tuning physical
+        // consistency check the implementation is required to pass: at
+        // alpha = 45 deg, Phi = 160 deg, f = 200 Hz the blade-element integral
+        //   F = 1/2 rho C_L omega_rms^2 (integral r^2 c dr),
+        //   omega_rms = pi f Phi / sqrt(2)
+        // must give F_lift/(W/2) ~ 1.22 for the 1.8 mm^2 wing the spec
+        // assumes, and proportionally more for the larger planform measured
+        // from the mesh (2.036 mm^2). Recomputing the integral here from the
+        // geometry constants pins the coefficient convention that the force
+        // uses: the cycle-mean force on the stroke-plane normal is C_L, not
+        // sqrt(C_L^2 + C_D^2) (see wing_force_magnitude). The resultant form
+        // read 1.79 here, i.e. 46 % outside the spec's own band.
+        let phi = 160f32.to_radians();
+        let omega_rms =
+            std::f32::consts::PI * WINGBEAT_HZ * phi / std::f32::consts::SQRT_2;
+        let integral_r2c = WING_K2 * WING_AREA * WING_LEN * WING_LEN;
+        let (cl, _cd) = coeffs(45.0);
+        let expect = 0.5 * RHO * cl * omega_rms * omega_rms * integral_r2c;
+        let got = wing_force_magnitude(phi, WINGBEAT_HZ, 0.0, 45.0);
+        assert!(
+            (got - expect).abs() < 0.01 * expect,
+            "the normal force {got:.1} is not the spec's integral {expect:.1}"
+        );
+        let ratio = got / (0.5 * FLY_MASS * GRAVITY);
+        // 1.22 with the spec's 1.8 mm^2 wing; 1.39 with the measured planform.
+        assert!(
+            ratio > 1.0 && ratio < 1.5,
+            "full-stroke normal force is {ratio:.3} of half the body weight; the spec's \
+             self-check band is about 1.22 (1.39 at the measured planform)"
+        );
+    }
+
+    #[test]
+    fn stroke_force_is_quadratic_in_amplitude() {
+        // Quasi-steady blade element: the section speed is proportional to
+        // stroke amplitude x wingbeat frequency and the force to the square of
+        // that speed, so at fixed frequency the cycle-mean force goes as
+        // amplitude SQUARED (spec §1.3; the incidence is held fixed here, so
+        // the coefficients do not vary and the exponent is exactly 2). This is
+        // the exponent that makes the fly's margin sensitive to recruitment: a
+        // half-amplitude stroke carries a quarter of the weight, not half.
+        let one = wing_force_magnitude(1.0, WINGBEAT_HZ, 0.0, 40.0);
+        let two = wing_force_magnitude(2.0, WINGBEAT_HZ, 0.0, 40.0);
+        let half = wing_force_magnitude(0.5, WINGBEAT_HZ, 0.0, 40.0);
+        assert!(
+            (two / one - 4.0).abs() < 0.02,
+            "doubling the amplitude scaled the force {:.4}x, not 4x",
+            two / one
+        );
+        assert!(
+            (one / half - 4.0).abs() < 0.02,
+            "halving the amplitude scaled the force {:.4}x, not 1/4x",
+            one / half
+        );
+        // And zero amplitude produces nothing, so the scaling has no offset.
+        assert_eq!(wing_force_magnitude(0.0, WINGBEAT_HZ, 0.0, 40.0), 0.0);
     }
 
     #[test]
