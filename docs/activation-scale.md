@@ -251,7 +251,16 @@ body-frame lift/weight was not reproducible on this tree; the same run gives
   absolute rates brought into the 3-20 Hz band before `a(t)` can be a graded
   muscle activation.
 
-## 8. Interaction with the steering read-out (reported, not fixed)
+## 8. Interaction with the steering read-out (SUPERSEDED — see `steering-pool-gradedness.md`)
+
+> **Status:** the defect described in this section has since been fixed in
+> `docs/steering-pool-gradedness.md`: the steering pools are now widened to the
+> spec's own 9-per-side set (tp1, tp2, hg1-hg4, b1-b3) and carry their own
+> `STEER_MN_FULL_SCALE_HZ = 200 Hz` one-spike-per-wingbeat anchor instead of the
+> window ceiling. The paragraph below is kept as the record of the hand-off.
+> The measured consequence: the steering command is now graded and off the rail,
+> but the flight path is **not** straighter (tortuosity 2.068 -> 2.065 over three
+> seeds), so the widening did not by itself fix the circling.
 
 `motor_flight_steering_*` is 3 neurons/side (b1-b3) while the spec names tp1,
 tp2 and hg1-hg4 (9/side), and 37 traced `wm` vc_motor neurons sit in no read-out

@@ -240,16 +240,47 @@ pub fn mn_audit(pack: &Path, o: &AuditOptions) -> Result<()> {
         );
     }
     let pool_hz = sum_hz / members.len() as f64;
-    println!(
-        "pool mean {:.1} Hz/neuron = {:.3} x the {:.0} Hz FULL-STROKE rate \
-         (POWER_MN_FULL_STROKE_HZ, the top of the measured in-flight band) \
-         and {:.3} x the {:.0} Hz refractory ceiling",
-        pool_hz,
-        pool_hz / crate::groups::POWER_MN_FULL_STROKE_HZ as f64,
-        crate::groups::POWER_MN_FULL_STROKE_HZ,
-        pool_hz / ceil_hz,
-        ceil_hz
-    );
+    // Report against the anchor THIS group actually carries: the asynchronous
+    // flight-power pools against POWER_MN_FULL_STROKE_HZ (3-12 Hz) and the
+    // synchronous steering pools against STEER_MN_FULL_SCALE_HZ
+    // (one spike per wingbeat, ~200 Hz). Hardcoding the power anchor here would
+    // misreport a steering audit by an order of magnitude.
+    match crate::groups::phys_full_scale_hz(&o.group) {
+        Some(anchor) if o.group.contains("steering") => println!(
+            "pool mean {:.1} Hz/neuron = {:.3} x the {:.0} Hz SYNCHRONOUS steering rate \
+             (STEER_MN_FULL_SCALE_HZ, one spike per wingbeat; Melis, Siwanowicz & Dickinson \
+             2024, Nature 628:795-803; Balint & Dickinson 2001, J. Exp. Biol. 204:4213) and \
+             {:.3} x the {:.0} Hz refractory ceiling",
+            pool_hz,
+            pool_hz / anchor as f64,
+            anchor,
+            pool_hz / ceil_hz,
+            ceil_hz
+        ),
+        Some(anchor) => println!(
+            "pool mean {:.1} Hz/neuron = {:.3} x the {:.0} Hz FULL-STROKE asynchronous rate \
+             (POWER_MN_FULL_STROKE_HZ, the top of the measured in-flight band) and {:.3} x the \
+             {:.0} Hz refractory ceiling",
+            pool_hz,
+            pool_hz / anchor as f64,
+            anchor,
+            pool_hz / ceil_hz,
+            ceil_hz
+        ),
+        None => {
+            let dhz = 1000.0 / (WINDOW_S * 1000.0);
+            println!(
+                "pool mean {:.1} Hz/neuron = {:.3} x the {:.0} Hz 2 ms window ceiling (this group \
+                 has NO physiological anchor, so its read-out is the fraction of the pool that \
+                 fired) and {:.3} x the {:.0} Hz refractory ceiling",
+                pool_hz,
+                pool_hz / dhz as f64,
+                dhz,
+                pool_hz / ceil_hz,
+                ceil_hz
+            )
+        }
+    }
 
     // ------------------------------------------------------ gradedness
     // The question this pool exists to answer: is its output GRADED, or is it a
@@ -607,6 +638,62 @@ pub fn mn_audit(pack: &Path, o: &AuditOptions) -> Result<()> {
         net_hz,
         net_hz / ((gap / k) / c_mean.abs().max(1.0))
     );
+
+    // ---------------------------------------------------- steering read-out
+    // The rate-to-force table below is the FLIGHT-POWER actuator chain: it
+    // turns a motor rate into stroke AMPLITUDE through the compressive
+    // amplitude map (`body::stroke_amp_for_activation`, anchored at
+    // POWER_MN_FULL_STROKE_HZ). It is the wrong map for a steering pool, which
+    // drives stroke-plane TILT and whose read-out is a steering command in
+    // 0..1. Report that command's resolution and distribution instead, and
+    // stop -- printing a power-specific hover rate for a steering pool would be
+    // a category error.
+    if !o.group.contains("power") {
+        let mut a_vals: Vec<f32> = ac.clone();
+        a_vals.sort_by(|x, y| x.partial_cmp(y).unwrap());
+        a_vals.dedup_by(|x, y| (*x - *y).abs() < 1e-6);
+        let distinct_a = a_vals.len();
+        let levels = win_hist.iter().filter(|&&c| c > 0).count();
+        let counts_seen: Vec<usize> =
+            (0..win_hist.len()).filter(|&k| win_hist[k] > 0).collect();
+        println!("\n-- STEERING READ-OUT RESOLUTION: the tilt command `a` in 0..1 --");
+        match crate::groups::phys_full_scale_hz(&o.group) {
+            Some(a) => println!(
+                "anchored at {a:.0} Hz/neuron = one spike per wingbeat, so the read-out is the \
+                 pool's TONIC rate / {a:.0}: CONTINUOUS in the pool's firing rate, with no fixed \
+                 quantisation step. a = 0.5 is half of full steering authority."
+            ),
+            None => println!(
+                "UNANCHORED: the read-out is the fraction of the {} members that fired in the \
+                 2 ms window, i.e. exactly k/{} -- a fixed quantisation step of 1/{}.",
+                members.len(),
+                members.len(),
+                members.len()
+            ),
+        }
+        println!(
+            "raw pool spike counts observed per window: {} distinct levels {:?} (of 0..={}); \
+             the command `a` takes {} distinct values and spans {:.4}..{:.4}",
+            levels,
+            counts_seen,
+            members.len(),
+            distinct_a,
+            aq(0.0),
+            aq(1.0)
+        );
+        println!(
+            "command distribution: mean {:.4}  sd {:.4}  p05 {:.4}  median {:.4}  p95 {:.4}; \
+             {:.1}% of windows at the rail (a == 1), {:.1}% at zero",
+            amean,
+            asd,
+            aq(0.05),
+            aq(0.50),
+            aq(0.95),
+            100.0 * a_rail / windows as f64,
+            100.0 * a_zero / windows as f64
+        );
+        return Ok(());
+    }
 
     // ------------------------------------------------- force versus rate
     // The rate-to-force map is a pure function of the pool's firing rate, so
