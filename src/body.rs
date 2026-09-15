@@ -357,13 +357,30 @@ impl Body {
         // resting and full stroke amplitude) and then fixes its endpoint —
         // `muscle activation gain k_a: scale to give F/W≈1.2 at a=1`
         // (physical-model-spec.md §6.5, [D] from §6.3) — so a = 1 means the
-        // full stroke amplitude and a = 0 the resting floor. What the spec
-        // does *not* pin is the conversion from the decoded motor rate to a:
-        // §5.1 says only that the neurons set the activation level. The
-        // read-out is the fraction of the wing-power pool that fired in the
-        // 2 ms control window (groups.rs), and this code uses that fraction
-        // directly as a. That is an [E] choice and the one remaining unknown in
-        // the chain; see docs/wing-force-calibration.md.
+        // full stroke amplitude and a = 0 the resting floor.
+        //
+        // SHAPE: linear in `a` between a floor and the full-stroke ceiling is
+        // what the in-vivo activation data support, so it is left alone. The
+        // steeply sigmoidal part of the activation relation belongs to the
+        // calcium/cross-bridge stage: in skinned IFM fibres positive power
+        // starts at pCa 5.8 and reaches its maximum at pCa 5.25 (Wang, Zhao &
+        // Swank 2011, Biophys. J. 101:2207, doi:10.1016/j.bpj.2011.09.034), and
+        // the flight working range (pCa 5.4-5.7) sits on that steep flank. In
+        // vivo, over that range, intramuscular calcium and muscle power are
+        // *linear* (R^2 ~ 0.95, 20-120 W/kg; Lehmann, Skandalis & Berthe 2013,
+        // doi:10.1098/rsif.2012.1050), and stroke amplitude rises approximately
+        // linearly with drive before saturating at the measured ~160 deg
+        // (Namiki et al. 2022, Curr. Biol. 32:1189, doi:10.1016/j.cub.2022.01.008).
+        // MAX is that ~160 deg. The 0.12 floor is an [E] holdover that only
+        // adds force, and is left documented rather than fitted.
+        //
+        // SCALE: `m.flight_power_*` is the fraction of the physiological
+        // maximum rate of the flight power motor neurons that the pool reached
+        // (groups.rs, `POWER_MN_MAX_HZ` = 20 Hz/neuron). It is NOT the fraction
+        // of the pool that fired in the window — those differ by 25x, and using
+        // the window's arithmetic ceiling as the actuator's full scale is what
+        // made 0.67 look like "two-thirds of full power" when the pool is in
+        // fact driven far beyond the maximum a flight muscle is asked for.
         let a = 1.0 - (-dt / MUSCLE_TAU).exp();
         let span = wing::STROKE_AMP_MAX - wing::STROKE_AMP_MIN;
         let amp_l = wing::STROKE_AMP_MIN + span * m.flight_power_l.clamp(0.0, 1.0);
