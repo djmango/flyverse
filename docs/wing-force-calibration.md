@@ -105,6 +105,17 @@ i.e. `amp = STROKE_AMP_MAX * (0.12 + 0.88 * a)`, then a 20 ms first-order lag
   picked to produce a result, so it is deliberately **not** done here. It is, however,
   the honest statement of what the conclusion below rests on.
 
+  > **Superseded.** This conversion has since been grounded in the asynchronous-flight
+  > physiology and fixed: the full scale of a flight power motor neuron is **20 Hz per
+  > neuron** (a DLM/DVM motor neuron fires ~5 Hz in flight, 3-12 Hz working range, up to
+  > ~20 Hz manoeuvring), not the 500 Hz the spike-count window can express. See
+  > [`activation-scale.md`](activation-scale.md). Note the direction: the grounded answer
+  > is *not* the 200 Hz "one spike per wingbeat" figure rejected above — asynchronous
+  > muscle fires far *below* the wingbeat, which is the whole point of §5.1 — and it makes
+  > the read-out saturate, because the model's power pool runs at ~334 Hz/neuron. The
+  > conclusion of §5 below is therefore revised: the shortfall is not that the connectome
+  > issues two-thirds drive, but that the pool's absolute rate is far outside physiology.
+
 ## 4. Before / after
 
 Controlled A/B, 12 s, seed 7, full 166,700-neuron model. Same tree, same commit
