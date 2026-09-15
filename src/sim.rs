@@ -156,6 +156,14 @@ pub struct World {
     /// that column's photoreceptors with the light it finds. FLYVERSE_NO_RETINA=1
     /// falls back to the optic-flow proxy alone.
     pub retina: Retina,
+    /// FLYVERSE_NO_SENSE=1 zeroes EVERY sensory drive channel and stops the
+    /// retina emitting, so the connectome is stepped with no external input at
+    /// all. It is the total-ablation control for "does this network generate
+    /// activity by itself, or is every rate in it forced from outside": the LIF
+    /// reset/rest state (-52 mV) is below threshold (-45 mV) with zero
+    /// conductance, which is a fixed point, so a truly unforced network cannot
+    /// spike. Off by default; when unset nothing in `sense` changes.
+    pub no_sense: bool,
     /// Model indices that fired during the last control window.
     pub window_spikes: Vec<u32>,
 
@@ -325,6 +333,7 @@ impl World {
             odor_on: std::env::var("FLYVERSE_NO_ODOR").is_err(),
             flow_on: std::env::var("FLYVERSE_NO_FLOW").is_err(),
             retina,
+            no_sense: std::env::var("FLYVERSE_NO_SENSE").is_ok(),
             conn,
             lif,
             groups,
@@ -377,8 +386,10 @@ impl World {
             s.extend_from_slice(self.d_legtac_l.events());
             s.extend_from_slice(self.d_legtac_r.events());
             // The retina's drives are per column, so they are pushed as a block
-            // rather than one line each.
-            self.retina.push_events(&mut s);
+            // rather than one line each. Gated by the total-input ablation.
+            if !self.no_sense {
+                self.retina.push_events(&mut s);
+            }
             self.lif.step(&self.conn, &s);
             self.window_spikes.extend_from_slice(&self.lif.fired);
             self.retina.observe(&self.lif.fired);
@@ -502,6 +513,35 @@ impl World {
         };
         self.d_legtac_l.rate_hz = load as f64 * 120.0;
         self.d_legtac_r.rate_hz = load as f64 * 120.0;
+
+        // Total-input ablation (FLYVERSE_NO_SENSE=1): every channel above is
+        // reduced to zero rate, so the connectome is stepped with no external
+        // input at all. With the drive at zero the network must fall silent --
+        // `v = REST` with `g = 0` is below threshold and is a fixed point of
+        // the LIF update -- so ANY spike measured under this flag is evidence
+        // that something other than the sensory channels is injecting activity.
+        if self.no_sense {
+            for d in [
+                &mut self.d_vnc,
+                &mut self.d_olf_l,
+                &mut self.d_olf_r,
+                &mut self.d_taste,
+                &mut self.d_vis_l,
+                &mut self.d_vis_r,
+                &mut self.d_loom_l,
+                &mut self.d_loom_r,
+                &mut self.d_hal_l,
+                &mut self.d_hal_r,
+                &mut self.d_legtac_l,
+                &mut self.d_legtac_r,
+            ] {
+                d.rate_hz = 0.0;
+            }
+            self.odor_l = 0.0;
+            self.odor_r = 0.0;
+            self.flow_l = 0.0;
+            self.flow_r = 0.0;
+        }
     }
 
     fn loom(&self) -> f32 {
