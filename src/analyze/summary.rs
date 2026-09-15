@@ -195,6 +195,11 @@ pub(crate) fn summarize(
             "neurons": w.conn.n,
             "edges": w.conn.m,
             "stimulus_targets": w.vnc_targets,
+            // Per-cell electrophysiological calibration of the flight power
+            // motor neurons (see sim::MN_POWER_INPUT_GAIN). 1.0 = the uniform
+            // global w_syn, i.e. uncalibrated.
+            "motor_power_mn_input_gain": w.mn_gain,
+            "motor_power_mn_cells": w.mn_cells,
         },
         "vision": {
             "retina_on": w.retina.on,

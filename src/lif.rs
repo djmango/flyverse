@@ -79,6 +79,22 @@ pub struct Lif {
     slot_writes: Vec<Vec<u32>>,
     /// Firing bitmask, one bit per neuron, reused every tick.
     pub mask: Vec<u64>,
+    /// PER-CELL INPUT GAIN, dimensionless, one per neuron, 1.0 by default.
+    ///
+    /// It multiplies the synaptic arrival term of the cell's own conductance
+    /// update (`gg = g*decay_s + arrivals*gain[i]`), i.e. it is a
+    /// per-cell synaptic efficacy: the somatic depolarisation a given incoming
+    /// synaptic conductance produces in THAT cell. Physiologically that product
+    /// is `R_in * I_syn` per unit synaptic conductance, so `gain[i]` is the
+    /// cell's input resistance expressed relative to whatever input resistance
+    /// the global `w_syn` (published as "the single free parameter") implicitly
+    /// assumes. A cell with a lower `R_in` than that reference needs a smaller
+    /// gain; a cell with a larger one a larger gain.
+    ///
+    /// It is exactly 1.0 for every neuron unless a caller sets it, and
+    /// `arrivals * 1.0f32 == arrivals` bit-for-bit, so an untouched Lif is
+    /// numerically identical to one without this term.
+    pub gain: Vec<f32>,
     pub profiling: bool,
     pub dense_fires: u32,
     pub t_dense: f64,
@@ -119,6 +135,7 @@ impl Lif {
             fired: Vec::with_capacity(512),
             slot_writes: (0..slots).map(|_| Vec::new()).collect(),
             mask: vec![0u64; mask_words(n)],
+            gain: vec![1.0; n],
             profiling: false,
             dense_fires: 0,
             t_dense: 0.0,
@@ -168,20 +185,22 @@ impl Lif {
             let rf = &mut self.refractory;
             let mask = &mut self.mask;
             let arrivals = &self.ring[read_slot * n..(read_slot + 1) * n];
+            let gain = &self.gain;
             let fire_total: u32 = v
                 .par_chunks_mut(CHUNK)
                 .zip(g.par_chunks_mut(CHUNK))
                 .zip(rf.par_chunks_mut(CHUNK))
                 .zip(arrivals.par_chunks(CHUNK))
+                .zip(gain.par_chunks(CHUNK))
                 .zip(mask.par_chunks_mut(WORDS))
-                .map(|((((vc, gc), rfc), ac), mc)| {
+                .map(|(((((vc, gc), rfc), ac), nc), mc)| {
                     let mut local_fires: u32 = 0;
                     for (wi, word) in mc.iter_mut().enumerate() {
                         let base = wi * 64;
                         let end = (base + 64).min(vc.len());
                         let mut acc: u64 = 0;
                         for i in base..end {
-                            let gg = gc[i] * ds + ac[i];
+                            let gg = gc[i] * ds + ac[i] * nc[i];
                             gc[i] = gg;
                             let vv = REST_MV + (vc[i] - REST_MV) * dm + gg * coup;
                             vc[i] = vv;

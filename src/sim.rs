@@ -46,6 +46,104 @@ pub const VNC_TARGETS: &str = "data/targets_vnc_sensory.u64";
 /// replayed at, never the wiring).
 pub const VNC_HZ_DEFAULT: f64 = 150.0;
 
+/// PER-CELL INPUT GAIN for the flight POWER motor neurons (DLM/DVM), the
+/// `lif::Lif::gain` value applied to `motor_flight_power_left/right`.
+///
+/// What it is. The published model applies ONE synaptic weight, `w_syn = 0.275
+/// mV` per contact, to all 166,700 neurons; the authors call it "the single free
+/// parameter" and calibrated it to a SATURATION target - a strong stimulus puts
+/// MN9 at ~80 % of its maximal rate (Shiu et al. 2024, Nature 634:210,
+/// doi:10.1038/s41586-024-07763-9). `w_syn` therefore bundles the input
+/// resistance of one reference cell type. This constant says: the DLM power
+/// motor neurons are not that cell. Their input resistance is MEASURED, it is
+/// lower, and so the same synaptic conductance depolarises them less.
+///
+/// The mechanism is `gain`, a per-cell multiplier on the arrival term of the
+/// cell's own membrane equation, i.e. the cell's SYNAPTIC EFFICACY in mV of
+/// somatic depolarisation per unit presynaptic drive. Physiologically that is
+/// `R_in * g_syn` per unit synaptic conductance, so the per-cell quantity this
+/// models is the cell's INPUT RESISTANCE (equivalently its input conductance,
+/// 1/R_in). It is NOT a read-out scale: it acts on the cell's membrane
+/// equation, upstream of the spike, and the spikes the pool then emits are
+/// counted exactly as before. Per-cell only - it touches the power MNs and
+/// nothing else, and every other neuron keeps gain 1.0.
+///
+/// The number, and its arithmetic. Two measured quantities of the same cell
+/// type (the Drosophila DLM motor neuron MN5) fix it, against the model's own
+/// constants:
+///
+/// 1. **Input resistance, measured.** MN5 R_in = **97 +/- 31 MOhm** (Duch,
+///    Vonhoff & Ryglewski 2008, J. Neurophysiol. 100:2525,
+///    doi:10.1152/jn.90758.2008; the value is restated in the MN5 modelling
+///    literature, e.g. Herrera-Valdez, "Analysis of Signal Propagation and
+///    Excitability in Computational Models of an Identified Drosophila
+///    Motoneuron", ASU, hdl.handle.net/2286/R.I.25956, Fig. 2.11). The global
+///    `w_syn` can only stand for some small central neuron. The two best
+///    measured small Drosophila central neurons are antennal-lobe projection
+///    neurons, **R_in = 598.0 +/- 69.3 MOhm** (n = 14; Gouwens & Wilson 2009,
+///    J. Neurosci. 29:6239) and MBON-alpha3, **R_m = 926 +/- 55 MOhm** (eLife
+///    2022, doi:10.7554/eLife.77578). So the input-resistance ratio is
+///    **97/598 = 1/6.2** against a PN, or **97/926 = 1/9.5** against an
+///    MBON-alpha3. No R_in has been measured for MN9 itself, so the CHOICE of
+///    reference is a modelling judgement and is bracketed by these two ends,
+///    not asserted.
+/// 2. **Threshold gap, measured.** MN5 is driven into repetitive tonic firing
+///    by roughly **0.3-0.4 nA** of injected current (Herrera-Valdez, ASU,
+///    Fig. 2.11; the same dissection is used in Duch et al. 2008). At the
+///    measured R_in that is 0.35 nA * 97 MOhm = **~34 mV** of steady
+///    depolarisation from rest to rheobase, against this model's uniform
+///    **7 mV** gap (threshold -45 mV, rest -52 mV). In a mean-field LIF, gain
+///    and gap enter only through their ratio (threshold when `g >= gap`), so
+///    `gain` and `1/gap` are interchangeable and the gap discrepancy is the
+///    same kind of per-cell factor: **7/34 = 1/4.9**.
+///
+/// `MN_POWER_INPUT_GAIN = (97/926) / (34/7) = 0.0216` -- a ~46x reduction of
+/// the effective synaptic efficacy onto these cells. Against a PN reference
+/// instead of an MBON-alpha3, 0.033. The range 0.0216-0.033 IS the honest
+/// uncertainty, and it is not free: both ends were measured, and both ends put
+/// the closed-loop pool inside the MEASURED operating range (8.0-15.5 Hz/neuron
+/// against a measured 3-12 Hz in-flight range and a measured linear f-I out to
+/// 30 Hz, Hurkey et al. 2023, Nature 618, Fig. 1c,e). See
+/// docs/motor-mn-calibration.md for the full derivation, the gradedness
+/// measurements and the behaviour before/after.
+///
+/// Override with `FLYVERSE_MN_GAIN` (a measurement knob for the sweep; it sets
+/// the same per-cell value for both power pools and nothing else).
+pub const MN_POWER_INPUT_GAIN: f32 = 0.0216;
+
+/// Resolve the per-cell input gain for the flight power pools: `$FLYVERSE_MN_GAIN`,
+/// else `MN_POWER_INPUT_GAIN`.
+pub fn mn_input_gain() -> f32 {
+    std::env::var("FLYVERSE_MN_GAIN")
+        .ok()
+        .and_then(|v| v.parse::<f32>().ok())
+        .filter(|v| *v > 0.0 && v.is_finite())
+        .unwrap_or(MN_POWER_INPUT_GAIN)
+}
+
+/// The motoneuron groups the per-cell calibration applies to: the flight POWER
+/// pools (DLM/DVM), which drive the wing actuator. NOT the steering pools: the
+/// wing steering muscles are *synchronous*, each innervated by a single motor
+/// neuron firing about one spike per wingbeat (~200 Hz), so a 3-20 Hz
+/// asynchronous-muscle calibration would be the wrong cell type for them.
+pub const MN_CALIBRATED_GROUPS: [&str; 2] =
+    ["motor_flight_power_left", "motor_flight_power_right"];
+
+/// Apply a per-cell input gain to the flight power motor neurons, in place.
+/// Returns `(cells, members)`: how many cells were set and which.
+fn apply_mn_input_gain(lif: &mut Lif, groups: &Groups, gain: f32) -> (u32, Vec<u32>) {
+    let mut members: Vec<u32> = Vec::new();
+    for name in MN_CALIBRATED_GROUPS {
+        for &m in groups.get(name) {
+            lif.gain[m as usize] = gain;
+            members.push(m);
+        }
+    }
+    members.sort_unstable();
+    members.dedup();
+    (members.len() as u32, members)
+}
+
 /// Resolve the vnc_sensory drive rate: `$FLYVERSE_STIM_HZ`, else the 150 Hz
 /// working point. Parsed as f64; an unparseable value falls back to the
 /// default rather than silently driving at 0 Hz.
@@ -69,7 +167,7 @@ pub fn vnc_targets_path() -> PathBuf {
 /// motor drive and muscle, not a filter applied to manufacture a graded signal
 /// out of a saturated one (the encoding in `GroupRates::norm` is what makes
 /// the read-out graded).
-const MOTOR_TAU_S: f32 = 0.030;
+pub const MOTOR_TAU_S: f32 = 0.030;
 
 fn read_u64s(path: &Path) -> Result<Vec<u64>> {
     let bytes = std::fs::read(path).with_context(|| format!("read {}", path.display()))?;
@@ -166,6 +264,13 @@ pub struct World {
     pub no_sense: bool,
     /// Model indices that fired during the last control window.
     pub window_spikes: Vec<u32>,
+    /// Per-cell input gain actually applied to the flight power motor neurons
+    /// (`MN_POWER_INPUT_GAIN`, or `$FLYVERSE_MN_GAIN`).
+    pub mn_gain: f32,
+    /// How many cells carry the calibrated gain.
+    pub mn_cells: u32,
+    /// Their model indices, ascending.
+    pub mn_members: Vec<u32>,
 
     // Sensory drive channels; rates are per-neuron Hz.
     d_vnc: Drive,
@@ -225,7 +330,12 @@ impl World {
             "[flyverse] body mechanosensation: merged {mech} groups from {}",
             Groups::mechano_path().display()
         );
-        let lif = Lif::new(&conn);
+        let mut lif = Lif::new(&conn);
+        // Per-cell electrophysiological calibration of the flight power motor
+        // neurons. Applied to the cell's own membrane equation (see `Lif::gain`
+        // and `MN_POWER_INPUT_GAIN`), before any spike is counted.
+        let mn_gain = mn_input_gain();
+        let (mn_cells, mn_members) = apply_mn_input_gain(&mut lif, &groups, mn_gain);
         let rates = GroupRates::new(groups.names.len(), WINDOW_STEPS);
 
         let mk = |name: &str, hz: f64, tag: u64| -> Drive {
@@ -326,6 +436,9 @@ impl World {
             yaw_rate: 0.0,
             stim: Vec::with_capacity(512),
             window_spikes: Vec::with_capacity(4096),
+            mn_gain,
+            mn_cells,
+            mn_members,
             vnc_targets,
             vnc_hz,
             mech_groups: mech,

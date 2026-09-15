@@ -167,6 +167,15 @@ pub fn mn_audit(pack: &Path, o: &AuditOptions) -> Result<()> {
     // is one spike per window, so the histogram below is the real measurement
     // resolution, and `win_hist[0]` says how often the pool reads exactly zero.
     let mut win_hist = vec![0u64; members.len() + 1];
+    // The ACTUATOR COMMAND the body actually receives: `GroupRates::norm` of the
+    // window, passed through the same `sim::MOTOR_TAU_S` first-order lag `World`
+    // applies before `body.rs` reads it. The raw 2 ms window is one spike per
+    // member; this is what the wing sees.
+    let mut a_cmd: Vec<f32> = Vec::with_capacity(windows as usize);
+    let scale_rd = crate::groups::phys_full_scale_hz(&o.group)
+        .unwrap_or(1000.0 / (WINDOW_S * 1000.0));
+    let a_lag = 1.0 - (-WINDOW_S / crate::sim::MOTOR_TAU_S).exp();
+    let mut a_sm = 0.0f32;
     for _ in 0..windows {
         w.advance();
         let mut cnt = 0u32;
@@ -176,6 +185,9 @@ pub fn mn_audit(pack: &Path, o: &AuditOptions) -> Result<()> {
             }
         }
         win_hist[cnt as usize] += 1;
+        let raw = (cnt as f32 / (WINDOW_S * members.len() as f32) / scale_rd).clamp(0.0, 1.0);
+        a_sm += (raw - a_sm) * a_lag;
+        a_cmd.push(a_sm);
     }
     let sim_s = w.step as f64 * DT_MS as f64 / 1000.0;
     let net_hz = w.lif.total_spikes as f64 / n as f64 / sim_s;
@@ -219,6 +231,152 @@ pub fn mn_audit(pack: &Path, o: &AuditOptions) -> Result<()> {
         crate::groups::POWER_MN_MAX_HZ,
         pool_hz / ceil_hz,
         ceil_hz
+    );
+
+    // ------------------------------------------------------ gradedness
+    // The question this pool exists to answer: is its output GRADED, or is it a
+    // switch pinned at one rail? Three distributions answer it, all measured:
+    //   (a) the per-NEURON long-run rate, against the 3-20 Hz a DLM motor neuron
+    //       occupies in flight;
+    //   (b) the per-WINDOW pool rate, i.e. what the actuator read-out sees
+    //       before it is smoothed: the fraction of control windows reading at
+    //       the physiological full scale (the read-out's rail, `norm` == 1.0),
+    //       and the fraction reading exactly zero;
+    //   (c) whether (a) and (b) move when the stimulus moves, which the sweep
+    //       over FLYVERSE_STIM_HZ / the sense-ablation ladder measures and this
+    //       block reports for the run it is given.
+    let mut rates: Vec<f64> = members
+        .iter()
+        .map(|&mm| w.lif.spike_count[mm as usize] as f64 / sim_s)
+        .collect();
+    rates.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    let q = |p: f64| -> f64 {
+        let k = ((rates.len() - 1) as f64 * p).round() as usize;
+        rates[k.min(rates.len() - 1)]
+    };
+    let band = |lo: f64, hi: f64| -> usize {
+        rates.iter().filter(|&&r| r >= lo && r < hi).count()
+    };
+    let n_mem = members.len() as f64;
+    let pct = |c: usize| 100.0 * c as f64 / n_mem;
+    println!(
+        "\n-- GRADEDNESS: per-neuron rate distribution ({} neurons) --\n\
+         min {:.1}  q1 {:.1}  median {:.1}  q3 {:.1}  max {:.1}  Hz/neuron; \
+         3-20 Hz physiological band = [{:.0}-{:.0} Hz working range]",
+        members.len(),
+        q(0.0),
+        q(0.25),
+        q(0.50),
+        q(0.75),
+        q(1.0),
+        crate::groups::POWER_MN_MAX_HZ * 0.15,
+        crate::groups::POWER_MN_MAX_HZ
+    );
+    println!(
+        "  ==    0 Hz   {:>3}  {:>6.1}%   (silent)\n\
+         \x20 (0,  3) Hz   {:>3}  {:>6.1}%   (below the 3-12 Hz flight working range)\n\
+         \x20 [3, 12) Hz   {:>3}  {:>6.1}%   (IN the measured DLM flight working range)\n\
+         \x20 [12, 20) Hz  {:>3}  {:>6.1}%   (in range: manoeuvring rates)\n\
+         \x20 [20,100) Hz  {:>3}  {:>6.1}%   (above any measured DLM rate)\n\
+         \x20 >=100 Hz     {:>3}  {:>6.1}%   (>5x the physiological maximum)",
+        band(0.0, 1e-9),
+        pct(band(0.0, 1e-9)),
+        band(1e-9, 3.0),
+        pct(band(1e-9, 3.0)),
+        band(3.0, 12.0),
+        pct(band(3.0, 12.0)),
+        band(12.0, 20.0),
+        pct(band(12.0, 20.0)),
+        band(20.0, 100.0),
+        pct(band(20.0, 100.0)),
+        band(100.0, f64::INFINITY),
+        pct(band(100.0, f64::INFINITY)),
+    );
+
+    // Per-window pool rate, i.e. exactly the quantity `GroupRates::norm` divides
+    // by its full scale before `MOTOR_TAU_S` smoothing.
+    let win_ms = WINDOW_S as f64 * 1000.0;
+    let scale = scale_rd as f64;
+    let one_spike_hz = 1000.0 / win_ms / n_mem;
+    let mut ac = a_cmd.clone();
+    ac.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    let aq = |p: f64| -> f64 {
+        let k = ((ac.len() - 1) as f64 * p).round() as usize;
+        ac[k.min(ac.len() - 1)] as f64
+    };
+    let amean = ac.iter().map(|&v| v as f64).sum::<f64>() / ac.len() as f64;
+    let asd =
+        (ac.iter().map(|&v| (v as f64 - amean).powi(2)).sum::<f64>() / ac.len() as f64).sqrt();
+    let a_rail = ac.iter().filter(|&&v| v >= 1.0).count() as f64;
+    let a_zero = ac.iter().filter(|&&v| v <= 0.0).count() as f64;
+    let zero = win_hist[0] as f64;
+    let rail = win_hist[members.len()] as f64;
+    let one_mem = win_hist.iter().skip(1).map(|&c| c as u64).sum::<u64>() as f64;
+    println!(
+        "\n-- GRADEDNESS: the actuator command `a` the wing is given ({} windows of {:.1} ms, \
+         read-out full scale {:.0} Hz, then the {:.0} ms `MOTOR_TAU_S` lag) --\n\
+         a mean {:.4}  sd {:.4}  min {:.4}  p05 {:.4}  median {:.4}  p95 {:.4}  max {:.4}\n\
+         windows with a EXACTLY 0.0:  {:>6.1}% ({:.0})   <- read-out pinned at zero\n\
+         windows with a AT 1.0:       {:>6.1}% ({:.0})   <- read-out pinned at its rail\n\
+         \x20 raw window facts: one member firing = {:.1} Hz/neuron = {:.2} of full scale, so at \
+         this window length the RAW read-out is near-binary;\n\
+         \x20 windows reading EXACTLY ZERO: {:>6.1}% ({:.0}); windows with >=1 of {} firing: \
+         {:>6.1}% ({:.0}); windows with ALL {} firing: {:>6.1}% ({:.0})",
+        windows,
+        win_ms,
+        scale,
+        crate::sim::MOTOR_TAU_S * 1000.0,
+        amean,
+        asd,
+        aq(0.0),
+        aq(0.05),
+        aq(0.50),
+        aq(0.95),
+        aq(1.0),
+        100.0 * a_zero / windows as f64,
+        a_zero,
+        100.0 * a_rail / windows as f64,
+        a_rail,
+        one_spike_hz,
+        one_spike_hz / scale,
+        100.0 * zero / windows as f64,
+        zero,
+        members.len(),
+        100.0 * one_mem / windows as f64,
+        one_mem,
+        members.len(),
+        100.0 * rail / windows as f64,
+        rail
+    );
+    // Verdict, stated as the measurement it is. The test is the pool's own
+    // OUTPUT, not the command: a rate sitting at the refractory ceiling, or at
+    // zero, is a switch; a distribution spread through the physiological band
+    // that moves with the drive is graded.
+    let frac_at_ceil = win_hist[members.len()] as f64 / windows as f64;
+    println!(
+        "  verdict: {} neurons; pool mean {:.1} Hz/neuron; per-neuron median {:.1} Hz; \
+         {:.1}% of raw windows with all {} members firing (the spike-count ceiling); \
+         actuator command a: mean {:.3} sd {:.3} min {:.3} max {:.3}. {}",
+        members.len(),
+        pool_hz,
+        q(0.50),
+        100.0 * frac_at_ceil,
+        members.len(),
+        amean,
+        asd,
+        aq(0.0),
+        aq(1.0),
+        if a_rail / windows as f64 > 0.95 {
+            "The read-out is PINNED at its rail: this pool is a switch."
+        } else if pool_hz > 100.0 {
+            "The pool's RATE is above any measured DLM rate: still a switch, one notch down."
+        } else if a_zero / windows as f64 > 0.95 {
+            "The pool is silent: the read-out is PINNED at zero."
+        } else if pool_hz < 1.0 {
+            "The pool is nearly silent; the read-out is below its measured range."
+        } else {
+            "The read-out spans its range: the pool is GRADED, not pinned."
+        }
     );
 
     // Whole-network rate histogram: is the pool an outlier, or is the whole
@@ -374,8 +532,11 @@ pub fn mn_audit(pack: &Path, o: &AuditOptions) -> Result<()> {
     let gap = (crate::lif::THRESHOLD_MV - crate::lif::REST_MV) as f64;
     println!(
         "\n-- mean field: does the measured input alone explain the measured rate? --\n\
-         predicted (v-REST) = k * sum(c_i * r_i), k = {k:.3e} mV per (contact*Hz); \
-         threshold gap = {gap:.1} mV"
+         predicted (v-REST) = k * gain * sum(c_i * r_i), k = {k:.3e} mV per (contact*Hz); \
+         threshold gap = {gap:.1} mV\n\
+         per-cell input gain on this pool: {:.6} ({} cells; lif::Lif::gain, see \
+         sim::MN_POWER_INPUT_GAIN)",
+        w.mn_gain, w.mn_cells
     );
     println!(
         "{:>8} {:>14} {:>14} {:>12} {:>12} {:>12}",
@@ -392,7 +553,7 @@ pub fn mn_audit(pack: &Path, o: &AuditOptions) -> Result<()> {
             })
             .sum();
         let net_c: f64 = member_in[kk].iter().map(|&(_, c)| c as f64).sum();
-        let pred = k * scr;
+        let pred = k * w.lif.gain[mm as usize] as f64 * scr;
         let obs = w.lif.spike_count[mm as usize] as f64 / sim_s;
         pred_sum += pred;
         obs_sum += obs;
