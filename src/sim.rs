@@ -278,6 +278,19 @@ pub struct World {
     /// steering pathway works. This knob lets a probe impose the stimulus
     /// instead of letting the fly produce it.
     pub loom_imposed: Option<(f32, f32)>,
+    /// Whether the two `visual_loom` drives are fed each eye's OWN retinotopic
+    /// depth signal rather than the shared body-heading scalar. `FLYVERSE_LOOM_
+    /// RETINOTOPIC=1`. Off by default, so the shipped closed loop is unchanged.
+    ///
+    /// The scalar `loom()` casts one ray along the body's forward axis, so it
+    /// is a single number, and `sense` delivered it to both `visual_loom`
+    /// pools: both eyes received an identical stimulus at every instant and the
+    /// loop contained no lateral visual information at all. That is not a
+    /// physiological model of binocular looming, it is a simplification of the
+    /// stimulus that destroys its laterality. The retina already samples each
+    /// eye's own columns; with this on, each eye's loom drive is the
+    /// time-to-collision to the nearest surface in THAT eye's field.
+    pub loom_retinotopic: bool,
     /// Per-cell input gain actually applied to the flight power motor neurons
     /// (`MN_POWER_INPUT_GAIN`, or `$FLYVERSE_MN_GAIN`).
     pub mn_gain: f32,
@@ -466,6 +479,7 @@ impl World {
             stim: Vec::with_capacity(512),
             window_spikes: Vec::with_capacity(4096),
             loom_imposed: None,
+            loom_retinotopic: std::env::var("FLYVERSE_LOOM_RETINOTOPIC").is_ok(),
             mn_gain,
             mn_cells,
             mn_members,
@@ -632,6 +646,11 @@ impl World {
         // a lateralised looming stimulus can reach the steering motor output.
         let (loom_l, loom_r) = match self.loom_imposed {
             Some((l, r)) => (l, r),
+            None if self.loom_retinotopic && self.retina.on => {
+                // Each eye's own retinotopic depth signal, so a wall on the
+                // left is a lateral stimulus rather than a common one.
+                self.retina.loom_by_eye(self.body.speed())
+            }
             None => {
                 let loom = self.loom();
                 (loom, loom)
@@ -751,6 +770,25 @@ impl World {
     /// Restore the closed-loop loom (the default state).
     pub fn clear_imposed_loom(&mut self) {
         self.loom_imposed = None;
+    }
+
+    /// Switch the closed loop between the shared body-heading scalar loom
+    /// (default) and each eye's own retinotopic loom. Staging for the probe and
+    /// for the closed-loop A/B; the env flag sets the same bit at construction.
+    pub fn set_loom_retinotopic(&mut self, on: bool) {
+        self.loom_retinotopic = on;
+    }
+
+    /// The two loom values the closed loop would deliver this window (left,
+    /// right), without imposing anything: the per-eye retinotopic pair when the
+    /// flag is on, else the scalar twice. Measurement only.
+    pub fn retina_loom_pair(&self) -> (f32, f32) {
+        if self.loom_retinotopic && self.retina.on {
+            self.retina.loom_by_eye(self.body.speed())
+        } else {
+            let l = self.loom();
+            (l, l)
+        }
     }
 
     /// Current sensory drive snapshot. This is the entire interface between the

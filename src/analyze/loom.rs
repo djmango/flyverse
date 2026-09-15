@@ -61,16 +61,30 @@ pub struct LoomProbeOptions {
     /// `60 * v` Hz per neuron. 1.0 is the closed loop's maximum (a saturated
     /// loom).
     pub levels: Vec<f32>,
+    /// Lateral RETINAL mode. Instead of imposing the loom on the two
+    /// `visual_loom` pools, impose an additive luminance on one eye's
+    /// retinotopic columns (the sense organ itself), with the closed loop
+    /// switched to each eye's own retinotopic loom. This is the genuinely
+    /// lateral stimulus: the level is a luminance step added to every column of
+    /// the stimulated eye, so the connectome has to carry it from the
+    /// photoreceptors. The levels are then luminances (0..1 scale), and the
+    /// positive control is the per-eye photoreceptor drive rate, not the loom
+    /// pool.
+    pub retinal: bool,
 }
 
 /// Which pools are stimulated, and how hard.
 struct Condition {
     name: String,
-    left_hz: f64,
-    right_hz: f64,
+    /// Native stimulus units: Hz for the loom-pool mode, additive luminance for
+    /// the retinal mode.
+    left: f32,
+    right: f32,
     /// Per-trial scalar means, indexed [channel][trial].
     scalars: Vec<Vec<f64>>,
-    /// Per-trial mean firing rate of the two `visual_loom` pools, [side][trial].
+    /// Per-trial mean of the positive-control channels (the two loom-pool rates
+    /// in loom mode, the two per-eye photoreceptor drive rates in retinal
+    /// mode), [side][trial].
     loom_hz: Vec<Vec<f64>>,
     /// Fraction of the response window spent airborne, [trial].
     air: Vec<f64>,
@@ -124,28 +138,43 @@ pub fn loom_probe(pack: &Path, o: &Options, p: &LoomProbeOptions) -> Result<()> 
         loom_pool_size(&w, "visual_loom_right"),
         if w.retina.on { "ON" } else { "silenced" }
     );
+    if p.retinal {
+        let (cl, cr) = w.retina.columns_by_eye();
+        // The closed loop is switched to the per-eye retinotopic loom, so the
+        // fly's own lateral visual sense drives its loom pools; the probe then
+        // adds a lateral luminance at the sense organ on top.
+        w.set_loom_retinotopic(true);
+        println!(
+            "loom probe: LATERAL RETINAL mode -- additive luminance on one eye's {} / {} columns, \
+             closed-loop loom = per-eye retinotopic (FLYVERSE_LOOM_RETINOTOPIC on)",
+            cl, cr
+        );
+    }
 
     // Conditions: the null first, then per level the two signs and the
     // symmetric (closed-loop-shaped) pattern.
     let mut conds: Vec<Condition> = vec![Condition {
         name: "null: loom 0 / 0".to_string(),
-        left_hz: 0.0,
-        right_hz: 0.0,
+        left: 0.0,
+        right: 0.0,
         scalars: vec![Vec::new(); NCH],
         loom_hz: vec![Vec::new(); 2],
         air: Vec::new(),
     }];
     for &v in &levels {
-        let hz = 60.0 * v as f64;
+        // The tag carries the native units: Hz for the loom-pool mode,
+        // luminance for the retinal mode.
+        let unit = if p.retinal { "lum" } else { "Hz" };
+        let shown = if p.retinal { v } else { 60.0 * v };
         for (tag, l, r) in [
             ("left eye", v, 0.0f32),
             ("right eye", 0.0f32, v),
             ("both eyes (symmetric)", v, v),
         ] {
             conds.push(Condition {
-                name: format!("{tag} {hz:.0} Hz (level {v:.2})"),
-                left_hz: l as f64 * 60.0,
-                right_hz: r as f64 * 60.0,
+                name: format!("{tag} +{shown:.2} {unit} (level {v:.2})"),
+                left: l,
+                right: r,
                 scalars: vec![Vec::new(); NCH],
                 loom_hz: vec![Vec::new(); 2],
                 air: Vec::new(),
@@ -195,13 +224,18 @@ pub fn loom_probe(pack: &Path, o: &Options, p: &LoomProbeOptions) -> Result<()> 
         let c = &mut conds[ci];
         if t > 0 {
             w.clear_imposed_loom();
+            w.retina.clear_imposed_lum();
             for _ in 0..iti_windows {
                 w.advance();
             }
         }
         // Impose the stimulus. The response window starts with the first
         // window in which it is in effect, so no conduction delay is baked in.
-        w.set_imposed_loom(c.left_hz as f32 / 60.0, c.right_hz as f32 / 60.0);
+        if p.retinal {
+            w.retina.set_imposed_lum(c.left, c.right);
+        } else {
+            w.set_imposed_loom(c.left / 60.0, c.right / 60.0);
+        }
         let mut acc = [0.0f64; NCH];
         let mut lm = [0.0f64; 2];
         let mut air = 0.0f64;
@@ -224,8 +258,14 @@ pub fn loom_probe(pack: &Path, o: &Options, p: &LoomProbeOptions) -> Result<()> 
             for k in 0..6 {
                 acc[k] += v[k];
             }
-            lm[0] += w.group_hz("visual_loom_left") as f64;
-            lm[1] += w.group_hz("visual_loom_right") as f64;
+            if p.retinal {
+                let (dl, dr) = w.retina.drive_hz_by_eye();
+                lm[0] += dl as f64;
+                lm[1] += dr as f64;
+            } else {
+                lm[0] += w.group_hz("visual_loom_left") as f64;
+                lm[1] += w.group_hz("visual_loom_right") as f64;
+            }
             if matches!(
                 w.body.mode,
                 crate::body::Mode::Takeoff | crate::body::Mode::Cruise | crate::body::Mode::Landing
@@ -257,8 +297,7 @@ pub fn loom_probe(pack: &Path, o: &Options, p: &LoomProbeOptions) -> Result<()> 
         }
     }
     w.clear_imposed_loom();
-
-    // ---------------------------------------------------------------- report
+    w.retina.clear_imposed_lum();
     println!("\n=== OPEN-LOOP LOOM PROBE ===");
     println!(
         "Imposed looming stimulus, both signs and several rates, held for {:.0} ms. \
@@ -271,9 +310,11 @@ pub fn loom_probe(pack: &Path, o: &Options, p: &LoomProbeOptions) -> Result<()> 
     );
 
     let nul = &conds[0];
+    let pc_lab = if p.retinal { "driveL Hz" } else { "loomL Hz" };
+    let pc_lab2 = if p.retinal { "driveR Hz" } else { "loomR Hz" };
     println!(
         "{:<34} {:>7} {:>10} {:>9} {:>9} {:>8} {:>8}",
-        "condition", "air%", "loomL Hz", "loomR Hz", "steerR-L", "yaw r/s", "|yaw|"
+        "condition", "air%", pc_lab, pc_lab2, "steerR-L", "yaw r/s", "|yaw|"
     );
     for c in &conds {
         println!(
@@ -444,6 +485,9 @@ pub fn loom_probe(pack: &Path, o: &Options, p: &LoomProbeOptions) -> Result<()> 
     }
     let out = serde_json::json!({
         "seed": o.seed,
+        "mode": if p.retinal { "retinal-lateral" } else { "loom-pool" },
+        "retinal_lum_stimulus": p.retinal,
+        "loom_retinotopic_closed_loop": w.loom_retinotopic,
         "response_ms": p.response_ms,
         "interval_s": p.interval_s,
         "warmup_s": p.warmup_s,

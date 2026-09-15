@@ -25,7 +25,7 @@ use std::path::PathBuf;
 
 use crate::body::qrot;
 use crate::groups::Drive;
-use crate::room::{add, scale, Room, V3};
+use crate::room::{add, len, scale, sub, Room, V3};
 
 /// Body-frame position of each eye's centre, relative to the thorax origin.
 /// A fly is about 2.3 mm long and the head sits roughly 1.2 mm forward
@@ -48,6 +48,22 @@ pub struct Retina {
     drives: Vec<Drive>,
     /// Luminance of the last sample per column, for telemetry.
     pub lum: Vec<f32>,
+    /// Distance along each column's own gaze ray to the surface it hit, mm.
+    /// `f32::INFINITY` means the ray found nothing. This is the per-column
+    /// retinotopic depth sample, and it is what makes a per-eye loom possible:
+    /// the scalar the closed loop used to drive both `visual_loom` pools is the
+    /// time-to-collision to the nearest wall along the BODY HEADING axis, which
+    /// is the same number for both eyes; this is the same quantity taken over
+    /// each eye's own set of gaze directions, so a wall on the left is near in
+    /// the left eye's columns and far in the right eye's.
+    dist: Vec<f32>,
+    /// Optional per-eye additive luminance (0..1 scale) applied on top of the
+    /// raycast luminance in `update`. `None` -- the default -- leaves the
+    /// raycast untouched and is bit-identical. `Some((l, r))` is the open-loop
+    /// probe's lateral stimulus: it changes only what one eye's photoreceptors
+    /// receive, never the wiring, and it is delivered at the sense organ so the
+    /// connectome has to route it.
+    imposed_lum: Option<(f32, f32)>,
     pub photons: usize,
     /// Membership mask over all model indices, so photoreceptor spikes can be
     /// counted separately from everything else the connectome is doing.
@@ -135,6 +151,8 @@ impl Retina {
             side,
             drives,
             lum: vec![0.0; n],
+            dist: vec![f32::INFINITY; n],
+            imposed_lum: None,
             photons,
             mask,
             spikes: 0,
@@ -172,12 +190,17 @@ impl Retina {
         for (i, d) in self.drives.iter_mut().enumerate() {
             let eye = add(pos, qrot(q, EYE_OFF[self.side[i] as usize]));
             let dir = qrot(q, self.gaze[i]);
-            let lum = match scene_hit(eye, dir, room) {
-                Some((p, n)) => luminance(p, n),
+            let (mut lum, dist) = match scene_hit(eye, dir, room) {
+                Some((p, n)) => (luminance(p, n), len(sub(p, eye))),
                 // A ray that leaves the room means the sampler is broken, not
                 // that the fly sees the void; report darkness, not a crash.
-                None => 0.0,
+                None => (0.0, f32::INFINITY),
             };
+            self.dist[i] = dist;
+            if let Some((ol, or_)) = self.imposed_lum {
+                let off = if self.side[i] == 0 { ol } else { or_ };
+                lum = (lum + off).clamp(0.0, 1.0);
+            }
             self.lum[i] = lum;
             d.rate_hz = BASE_HZ + GAIN_HZ * lum as f64;
         }
@@ -199,6 +222,91 @@ impl Retina {
             return 0.0;
         }
         self.lum.iter().sum::<f32>() / self.lum.len() as f32
+    }
+
+    /// Mean luminance per eye, (left, right): what each eye actually received.
+    pub fn mean_lum_by_eye(&self) -> (f32, f32) {
+        let mut sum = [0.0f64; 2];
+        let mut n = [0usize; 2];
+        for (i, l) in self.lum.iter().enumerate() {
+            let s = self.side[i] as usize;
+            sum[s] += *l as f64;
+            n[s] += 1;
+        }
+        let f = |s: usize| if n[s] == 0 { 0.0 } else { (sum[s] / n[s] as f64) as f32 };
+        (f(0), f(1))
+    }
+
+    /// Per-eye looming signal: the SAME time-to-collision mapping the closed
+    /// loop already uses (`sim::World::loom`, `1 - clamp(ttc/0.6, 0, 1)` with
+    /// `ttc = dist / max(speed, 20 mm/s)`), but the distance is the nearest
+    /// surface along THIS eye's own retinotopic columns rather than along the
+    /// body heading axis.
+    ///
+    /// Why this exists. The scalar `World::loom` casts one ray along the body's
+    /// forward axis, so it returns one number, and the closed loop delivered
+    /// that same number to both `visual_loom` pools. The two eyes therefore
+    /// received an identical stimulus in every window and no lateral visual
+    /// information existed anywhere in the loop, regardless of what the retina
+    /// was seeing. The retina already samples each eye's own field of view; this
+    /// reads the same samples back per eye. Nothing is added on top of the room:
+    /// the columns, their gaze directions and the raycast are the ones that
+    /// already drive the photoreceptors.
+    pub fn loom_by_eye(&self, speed: f32) -> (f32, f32) {
+        let v = speed.max(20.0);
+        let mut best = [f32::INFINITY; 2];
+        for i in 0..self.dist.len() {
+            let d = self.dist[i];
+            let s = self.side[i] as usize;
+            if d.is_finite() && d < best[s] {
+                best[s] = d;
+            }
+        }
+        let loom = |d: f32| {
+            if !d.is_finite() {
+                0.0
+            } else {
+                (1.0 - ((d / v) / 0.6).clamp(0.0, 1.0)).clamp(0.0, 1.0)
+            }
+        };
+        (loom(best[0]), loom(best[1]))
+    }
+
+    /// Impose an additive per-eye luminance on the retina (0..1 scale added to
+    /// each column's raycast luminance before the photoreceptor rate is set).
+    /// The open-loop lateral probe's stimulus: it changes what one eye's
+    /// photoreceptors receive and nothing else.
+    pub fn set_imposed_lum(&mut self, left: f32, right: f32) {
+        self.imposed_lum = Some((left.max(0.0), right.max(0.0)));
+    }
+
+    /// Restore the plain raycast luminance (the default state).
+    pub fn clear_imposed_lum(&mut self) {
+        self.imposed_lum = None;
+    }
+
+    /// Number of columns per eye in the loaded retina, for the probe header.
+    pub fn columns_by_eye(&self) -> (usize, usize) {
+        let l = self.side.iter().filter(|s| **s == 0).count();
+        (l, self.side.len() - l)
+    }
+
+    /// Mean photoreceptor DRIVE rate per eye, Hz: the rate the columns' Poisson
+    /// drives are actually being set to this window (for an unstimulated eye,
+    /// `BASE_HZ + GAIN_HZ * mean_lum`). This is the effective stimulus that
+    /// reached each eye, so it is the positive control for a lateral retinal
+    /// probe: if it does not move, nothing downstream can be attributed to the
+    /// stimulus.
+    pub fn drive_hz_by_eye(&self) -> (f32, f32) {
+        let mut sum = [0.0f64; 2];
+        let mut n = [0usize; 2];
+        for (i, d) in self.drives.iter().enumerate() {
+            let s = self.side[i] as usize;
+            sum[s] += d.rate_hz;
+            n[s] += 1;
+        }
+        let f = |s: usize| if n[s] == 0 { 0.0 } else { (sum[s] / n[s] as f64) as f32 };
+        (f(0), f(1))
     }
 }
 
