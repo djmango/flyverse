@@ -44,6 +44,74 @@ pub const WINGBEAT_VISUAL_HZ: f32 = 19.0;
 /// requires for the thorax to act as a resonator.
 pub const MUSCLE_TAU: f32 = 0.020;
 
+/// Exponent of the measured in-vivo relation between mechanical power output
+/// and A-IFM motor-neuron spike frequency.
+///
+/// Gordon & Dickinson (2006), PNAS 103(11):4311-4315,
+/// doi:10.1073/pnas.0510109103, held tethered *Drosophila* in front of a
+/// vertically drifting grating and recorded A-IFM spikes alongside wing
+/// kinematics. Measured: "a 3-fold increase in spike frequency (from 3 to 9 Hz)
+/// results in a 1.7-fold increase in power output" (Fig. 1e). The paper's
+/// rounded summary of the same data is "An ≈2-fold change in power accompanied
+/// a 3-fold change in steady-state spike frequency" (Fig. 1c), which would give
+/// `ln 2 / ln 3 = 0.63`. The explicit measured pair is used here:
+///
+///     ln(1.7) / ln(3) = 0.483
+///
+/// This is a COMPRESSIVE power law. The map it replaces produced a force
+/// exponent of 2 (see `STROKE_AMP_EXPONENT`), i.e. 4x too steep and in the
+/// opposite direction.
+pub const POWER_RATE_EXPONENT: f32 = 0.483;
+
+/// Exponent of the activation-to-stroke-amplitude map: half the measured power
+/// exponent, because quasi-steady aerodynamic force goes as amplitude
+/// SQUARED (physical-model-spec.md §1.3).
+///
+///     lift ∝ amp^2 ∝ (a^0.2415)^2 = a^0.483
+///
+/// With the activation `a` linear in the pool's firing rate (see
+/// `groups::MOTOR_RATE_TAU_S`) that reproduces the measured `power ∝ f^0.483`
+/// across the in-flight band. The exponent is below 1, so the map is
+/// compressive: the wing reaches a large fraction of full stroke at a low
+/// activation, and the force saturates gently as the animal recruits more.
+pub const STROKE_AMP_EXPONENT: f32 = POWER_RATE_EXPONENT * 0.5;
+
+/// Stroke amplitude, radians peak-to-peak, at muscle activation `a` in 0..1.
+///
+/// The map is `STROKE_AMP_MAX * a^STROKE_AMP_EXPONENT`. Both endpoints are
+/// pinned by the spec and are not free: `a = 1` is the full stroke
+/// (`STROKE_AMP_MAX`, 158 deg, physical-model-spec.md §6.5: the activation gain
+/// is scaled to give `F/W ≈ 1.2` there) and `a = 0` is a wing that is not being
+/// driven at all, which is zero amplitude rather than the removed uncited 0.12
+/// floor. The compressive shape between them is the measured rate-to-power
+/// relation, inverted through the squared force law.
+pub fn stroke_amp_for_activation(a: f32) -> f32 {
+    wing::STROKE_AMP_MAX * a.clamp(0.0, 1.0).powf(STROKE_AMP_EXPONENT)
+}
+
+/// Total wing lift, both wings, divided by body weight, at muscle activation
+/// `a` in 0..1, at rest (zero airspeed). 1.0 is hover.
+///
+/// This is the map the model produces, as a pure function of the activation, so
+/// the rate-to-force relation can be inspected without running the sim. Callers
+/// that need Hz convert first: `a = f_hz / groups::POWER_MN_FULL_STROKE_HZ`.
+pub fn lift_ratio_at_activation(a: f32) -> f32 {
+    let amp = stroke_amp_for_activation(a);
+    2.0 * wing::wing_force_magnitude(amp, wing::WINGBEAT_HZ, 0.0, 40.0)
+        / (wing::FLY_MASS * GRAVITY)
+}
+
+/// Total wing lift divided by body weight at a flight-power pool firing rate of
+/// `f_hz` Hz/neuron, at rest. 1.0 is hover.
+///
+/// `f_hz` is the pool's mean rate; the activation is that rate over the
+/// physiological full-stroke rate (`groups::POWER_MN_FULL_STROKE_HZ`). This is
+/// the quantity the task's rate-to-force comparison is about, and the quantity
+/// the `mn-audit` force-curve block prints.
+pub fn lift_ratio_at_rate(f_hz: f32) -> f32 {
+    lift_ratio_at_activation(f_hz / crate::groups::POWER_MN_FULL_STROKE_HZ)
+}
+
 /// Walking speed at full leg motor drive. [SURROGATE] capped and linear.
 pub const WALK_MAX: f32 = 14.0;
 
@@ -352,39 +420,67 @@ impl Body {
 
         // 1. Wing motor neurons -> stroke amplitude, through the muscle.
         //
-        // The map is the spec's activation set point, not a fitted curve: the
-        // spec defines the activation a (a linear interpolation between the
-        // resting and full stroke amplitude) and then fixes its endpoint —
-        // `muscle activation gain k_a: scale to give F/W≈1.2 at a=1`
-        // (physical-model-spec.md §6.5, [D] from §6.3) — so a = 1 means the
-        // full stroke amplitude and a = 0 the resting floor.
+        // The endpoint is the spec's, not a fitted value: `a = 1` means the
+        // full stroke amplitude, because the spec fixes the muscle activation
+        // gain by `k_a: scale to give F/W≈1.2 at a=1` (physical-model-spec.md
+        // §6.5, derived from the mandatory no-tuning self-check in §6.3). That
+        // endpoint is preserved exactly: `stroke_amp(1.0) == STROKE_AMP_MAX`.
         //
-        // SHAPE: linear in `a` between a floor and the full-stroke ceiling is
-        // what the in-vivo activation data support, so it is left alone. The
-        // steeply sigmoidal part of the activation relation belongs to the
-        // calcium/cross-bridge stage: in skinned IFM fibres positive power
-        // starts at pCa 5.8 and reaches its maximum at pCa 5.25 (Wang, Zhao &
-        // Swank 2011, Biophys. J. 101:2207, doi:10.1016/j.bpj.2011.09.034), and
-        // the flight working range (pCa 5.4-5.7) sits on that steep flank. In
-        // vivo, over that range, intramuscular calcium and muscle power are
-        // *linear* (R^2 ~ 0.95, 20-120 W/kg; Lehmann, Skandalis & Berthe 2013,
-        // doi:10.1098/rsif.2012.1050), and stroke amplitude rises approximately
-        // linearly with drive before saturating at the measured ~160 deg
-        // (Namiki et al. 2022, Curr. Biol. 32:1189, doi:10.1016/j.cub.2022.01.008).
-        // MAX is that ~160 deg. The 0.12 floor is an [E] holdover that only
-        // adds force, and is left documented rather than fitted.
+        // SHAPE. Quasi-steady blade-element force goes as stroke amplitude
+        // SQUARED (spec §1.3; `stroke_force_is_quadratic_in_amplitude`), so the
+        // shape of the rate-to-force relation is fixed by the shape of the
+        // rate-to-amplitude map. The map the model needs is the one the animal
+        // was measured to have. Gordon & Dickinson (2006), PNAS 103(11):4311,
+        // doi:10.1073/pnas.0510109103, tethered flies with drifting gratings and
+        // recorded A-IFM membrane spikes alongside wing kinematics: "a 3-fold
+        // increase in spike frequency (from 3 to 9 Hz) results in a 1.7-fold
+        // increase in power output" (Fig. 1e); the paper's rounded summary of
+        // the same measurement is "An ≈2-fold change in power accompanied a
+        // 3-fold change in steady-state spike frequency" (Fig. 1c). The
+        // explicit measured pair is the one used here:
         //
-        // SCALE: `m.flight_power_*` is the fraction of the physiological
-        // maximum rate of the flight power motor neurons that the pool reached
-        // (groups.rs, `POWER_MN_MAX_HZ` = 20 Hz/neuron). It is NOT the fraction
-        // of the pool that fired in the window — those differ by 25x, and using
-        // the window's arithmetic ceiling as the actuator's full scale is what
-        // made 0.67 look like "two-thirds of full power" when the pool is in
-        // fact driven far beyond the maximum a flight muscle is asked for.
+        //     power ∝ f^0.483,   0.483 = ln(1.7) / ln(3)
+        //
+        // i.e. a COMPRESSIVE power law, not the squared one the previous linear
+        // map produced (`lift ∝ (0.12 + 0.88a)^2`, exponent 2). It is 4x too
+        // steep AND in the wrong direction: the animal's power is a shallow,
+        // concave function of spike rate, so a 3-fold rate change is only a
+        // 1.7-fold force change. Matching it needs amplitude to be a
+        // compressive function of `a` with half that exponent, because force is
+        // amplitude squared:
+        //
+        //     amp = STROKE_AMP_MAX * a^(0.483 / 2)
+        //
+        // Anchored over the measured in-flight band, 3-12 Hz/neuron, which is
+        // where the citation's 3-9 Hz measurement sits; outside it the map is
+        // the same continuous power law, saturating at a = 1 (12 Hz) and going
+        // to zero amplitude at a = 0. It is deliberately NOT extrapolated as a
+        // power law below the band as a physical claim: at a = 0.05 (0.6 Hz) it
+        // gives 0.47 of full stroke, which is what a compressive law implies
+        // and is why the old `0.12` floor is gone -- see below.
+        //
+        // THE FLOOR. The previous map was `0.12 + 0.88a`; the 0.12 was an [E]
+        // holdover ("a wing with zero motor drive still sweeps a little") that
+        // was not measured and only added uncited force -- at a = 0 it alone
+        // produced 1.4% of full-stroke lift, and across the working band it
+        // pushed the map's shape away from any measured law. It is removed: a
+        // compressive power law already rises steeply from zero (a = 0.05
+        // gives 47% of full stroke), so nothing needs a floor to keep the wing
+        // beating, and at a = 0 (a silent pool) the amplitude is genuinely 0.
+        // `no_altitude_setpoint_remains` covers the grounded case.
+        //
+        // SCALE. `m.flight_power_*` is the fraction of the physiological
+        // FULL-STROKE rate of the flight power motor neurons that the pool
+        // reached (groups.rs, `POWER_MN_FULL_STROKE_HZ` = 12 Hz/neuron, the top
+        // of the measured in-flight band). It is NOT the fraction of the pool
+        // that fired in the window — those differ by ~4x at the working point,
+        // and using the window's arithmetic ceiling as the actuator's full
+        // scale is what made 0.67 look like "two-thirds of full power" when the
+        // pool is in fact driven far beyond the maximum a flight muscle is
+        // asked for.
         let a = 1.0 - (-dt / MUSCLE_TAU).exp();
-        let span = wing::STROKE_AMP_MAX - wing::STROKE_AMP_MIN;
-        let amp_l = wing::STROKE_AMP_MIN + span * m.flight_power_l.clamp(0.0, 1.0);
-        let amp_r = wing::STROKE_AMP_MIN + span * m.flight_power_r.clamp(0.0, 1.0);
+        let amp_l = stroke_amp_for_activation(m.flight_power_l);
+        let amp_r = stroke_amp_for_activation(m.flight_power_r);
         self.wing_amp_l += (amp_l - self.wing_amp_l) * a;
         self.wing_amp_r += (amp_r - self.wing_amp_r) * a;
         self.wing_amp = 0.5 * (self.wing_amp_l + self.wing_amp_r);
@@ -691,6 +787,111 @@ mod tests {
         let lo = wing::wing_force_magnitude(1.5, wing::WINGBEAT_HZ, 0.0, 40.0);
         let hi = wing::wing_force_magnitude(2.5, wing::WINGBEAT_HZ, 0.0, 40.0);
         assert!(hi > lo, "lift must increase with stroke amplitude");
+    }
+
+    /// The full-stroke endpoint is pinned by the spec and must not move when the
+    /// SHAPE of the map changes. `a = 1` is `F/W ~ 1.2` by the spec's own
+    /// activation-gain rule (physical-model-spec.md §6.5), so the map still has
+    /// to deliver a full-stroke lift ratio in the §6.3 self-check band.
+    #[test]
+    fn full_stroke_endpoint_survives_the_compressive_shape() {
+        assert!(
+            (stroke_amp_for_activation(1.0) - wing::STROKE_AMP_MAX).abs() < 1e-5,
+            "a = 1 must be the full stroke amplitude, got {}",
+            stroke_amp_for_activation(1.0)
+        );
+        assert_eq!(stroke_amp_for_activation(0.0), 0.0, "no drive, no stroke");
+        assert_eq!(stroke_amp_for_activation(-1.0), 0.0, "activation clamps at 0");
+        // The 0.12 floor the old map carried is gone: a small activation must
+        // give the compressive law's own small value, not a floor.
+        let small = stroke_amp_for_activation(0.01) / wing::STROKE_AMP_MAX;
+        assert!(
+            (small - 0.01f32.powf(STROKE_AMP_EXPONENT)).abs() < 1e-5,
+            "the map must be the power law with no additive floor, got {small:.4}"
+        );
+        let r = lift_ratio_at_activation(1.0);
+        // 1.39 with the measured planform; the spec's 1.8 mm^2 wing gives 1.22.
+        assert!(
+            r > 1.0 && r < 1.5,
+            "full stroke gives {r:.3} of body weight; the spec's self-check band is ~1.22 \
+             (1.39 at the measured planform)"
+        );
+    }
+
+    /// THE scrutiny test: the map must reproduce the MEASURED rate-to-force
+    /// relation, not merely produce flight.
+    ///
+    /// Gordon & Dickinson (2006), PNAS 103(11):4311, doi:10.1073/pnas.0510109103:
+    /// "a 3-fold increase in spike frequency (from 3 to 9 Hz) results in a
+    /// 1.7-fold increase in power output" (Fig. 1e). Aerodynamic force is
+    /// amplitude squared, so the model's lift over that same span has to be
+    /// 1.7x. The map this replaced was LINEAR in activation with a floor, so on
+    /// the old read-out it gave a super-linear force exponent instead — see
+    /// `docs/force-rate-map.md` for both curves tabulated side by side. This
+    /// test fails on the old map and passes on the power law, which is what
+    /// makes it evidence rather than assertion.
+    #[test]
+    fn force_follows_the_measured_frequency_to_power_relation() {
+        let got = lift_ratio_at_rate(9.0) / lift_ratio_at_rate(3.0);
+        assert!(
+            (got - 1.7).abs() < 0.02,
+            "3 Hz/neuron -> 9 Hz/neuron gave {got:.3}x lift; the measured relation is 1.7x \
+             (and the paper's rounded statement of it, 3-fold rate to 2-fold power, is 2.0x)"
+        );
+        // The exponent itself, measured off the produced curve across the whole
+        // measured in-flight band.
+        let lo_hz = crate::groups::POWER_MN_BAND_LO_HZ;
+        let hi_hz = crate::groups::POWER_MN_BAND_HI_HZ;
+        let expo = (lift_ratio_at_rate(hi_hz) / lift_ratio_at_rate(lo_hz)).ln()
+            / (hi_hz / lo_hz).ln();
+        assert!(
+            (expo - POWER_RATE_EXPONENT).abs() < 0.02,
+            "the produced force-versus-rate exponent over {lo_hz:.0}-{hi_hz:.0} Hz is \
+             {expo:.3}, not the measured {POWER_RATE_EXPONENT:.3}"
+        );
+        // And it is COmpressive everywhere in the band: each doubling of rate
+        // buys less force than the last. The old squared map was the opposite.
+        for f in [3.0f32, 4.0, 6.0, 8.0, 10.0] {
+            let m1 = lift_ratio_at_rate(2.0 * f) / lift_ratio_at_rate(f);
+            assert!(
+                m1 > 1.0 && m1 < 2.0,
+                "doubling the rate from {f} Hz scaled the force {m1:.3}x; a compressive law \
+                 must be between 1x and 2x (the old map gave 4x)"
+            );
+        }
+    }
+
+    /// Hover — the rate at which the produced lift equals the body weight —
+    /// must land inside the measured 3-12 Hz in-flight band. A map that matches
+    /// the exponent but needs 40-110 Hz to hover has merely re-tuned the scale.
+    #[test]
+    fn hover_sits_inside_the_measured_inflight_band() {
+        let mut lo = 0.01f32;
+        let mut hi = crate::groups::POWER_MN_MANOEUVRE_MAX_HZ;
+        assert!(lift_ratio_at_rate(lo) < 1.0, "the curve must start below hover");
+        assert!(lift_ratio_at_rate(hi) > 1.0, "the curve must reach hover below {hi} Hz");
+        for _ in 0..60 {
+            let mid = 0.5 * (lo + hi);
+            if lift_ratio_at_rate(mid) < 1.0 {
+                lo = mid;
+            } else {
+                hi = mid;
+            }
+        }
+        let hover = 0.5 * (lo + hi);
+        assert!(
+            hover >= crate::groups::POWER_MN_BAND_LO_HZ
+                && hover <= crate::groups::POWER_MN_BAND_HI_HZ,
+            "the fly hovers at {hover:.2} Hz/neuron, outside the measured {:.0}-{:.0} Hz \
+             in-flight band",
+            crate::groups::POWER_MN_BAND_LO_HZ,
+            crate::groups::POWER_MN_BAND_HI_HZ
+        );
+        // And it is near the animal's measured sustained-flight rate, ~5 Hz.
+        assert!(
+            (hover - 5.0).abs() < 2.0,
+            "hover at {hover:.2} Hz/neuron is not near the measured ~5 Hz sustained rate"
+        );
     }
 
     #[test]

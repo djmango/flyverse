@@ -456,3 +456,27 @@ with the per-cell gain folded in, and the full gradedness block (per-neuron rate
 distribution, actuator-command distribution, rail and zero fractions). `analyze`
 prints the applied gain and records it in `summary.json` under
 `neural.motor_power_mn_input_gain`.
+
+---
+
+## 8. Follow-up: the body-side task §6 handed off, now done
+
+§6's project-level finding was that a physiologically-graded command can never lift a
+body calibrated against a saturated pool, and that fixing it is a body/read-out task.
+That task has been carried out; see **`docs/force-rate-map.md`**. In brief:
+
+- The amplitude map `MAX * (0.12 + 0.88 a)` was replaced by the measured compressive
+  relation `MAX * a^0.2415`, so lift goes as `f^0.483` — Gordon & Dickinson 2006's
+  measured 1.7x power per 3x spike rate — instead of the `f^2` the linear map produced.
+- The anchor moved from 20 Hz to **12 Hz** (`POWER_MN_MAX_HZ` -> `POWER_MN_FULL_STROKE_HZ`),
+  the top of the measured 3-12 Hz in-flight band, because `a = 1` pins the full-stroke
+  endpoint. Every "x physiological max (20 Hz)" column **in this note** should be
+  re-read against 12 Hz (multiply by 1.67); the Hz figures are unaffected.
+- The pool now hovers at **6.69 Hz/neuron** and cruises at ~5.9 Hz/neuron: inside the
+  measured 3-12 Hz band, where before the same body needed 73 Hz to hover (6.1x the top
+  of the band) and 110 Hz under §4.1's gain sweep for sustained cruise.
+- Behaviour, 12 s seed 7: cruise 38.4 % (0 % before), 1 takeoff, altitude mean 31.2 /
+  max 220 mm, speed 228 mm/s. Marginal rather than strong flight: the pool cruises at
+  `lift/W ~ 0.94` against a 1.0 hover threshold, and 95 % of airborne samples are within
+  20 mm of a wall in the 220 mm room.
+- Tests are now **38**, not 33 (5 new).

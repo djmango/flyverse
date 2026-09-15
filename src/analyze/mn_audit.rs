@@ -174,8 +174,11 @@ pub fn mn_audit(pack: &Path, o: &AuditOptions) -> Result<()> {
     let mut a_cmd: Vec<f32> = Vec::with_capacity(windows as usize);
     let scale_rd = crate::groups::phys_full_scale_hz(&o.group)
         .unwrap_or(1000.0 / (WINDOW_S * 1000.0));
+    let anchored = crate::groups::phys_full_scale_hz(&o.group).is_some();
     let a_lag = 1.0 - (-WINDOW_S / crate::sim::MOTOR_TAU_S).exp();
+    let rate_lag = 1.0 - (-WINDOW_S / crate::groups::MOTOR_RATE_TAU_S).exp();
     let mut a_sm = 0.0f32;
+    let mut smooth_hz = 0.0f32;
     for _ in 0..windows {
         w.advance();
         let mut cnt = 0u32;
@@ -185,8 +188,22 @@ pub fn mn_audit(pack: &Path, o: &AuditOptions) -> Result<()> {
             }
         }
         win_hist[cnt as usize] += 1;
-        let raw = (cnt as f32 / (WINDOW_S * members.len() as f32) / scale_rd).clamp(0.0, 1.0);
-        a_sm += (raw - a_sm) * a_lag;
+        let raw_hz = cnt as f32 / (WINDOW_S * members.len() as f32);
+        // Mirror `GroupRates::norm`. An ANCHORED group reads a tonic rate --
+        // the spike count integrated over `MOTOR_RATE_TAU_S`, the muscle's own
+        // transduction time -- before it is normalised, because one spike in a
+        // 2 ms window reads 41.7 Hz/neuron and would saturate the clamp on its
+        // own. An unanchored group reads the raw per-window rate exactly as
+        // before.
+        let norm = if anchored {
+            smooth_hz += (raw_hz - smooth_hz) * rate_lag;
+            (smooth_hz / scale_rd).clamp(0.0, 1.0)
+        } else {
+            (raw_hz / scale_rd).clamp(0.0, 1.0)
+        };
+        // ...then the `sim::MOTOR_TAU_S` lag `World::smooth_motors` applies
+        // before the body reads the value.
+        a_sm += (norm - a_sm) * a_lag;
         a_cmd.push(a_sm);
     }
     let sim_s = w.step as f64 * DT_MS as f64 / 1000.0;
@@ -224,11 +241,12 @@ pub fn mn_audit(pack: &Path, o: &AuditOptions) -> Result<()> {
     }
     let pool_hz = sum_hz / members.len() as f64;
     println!(
-        "pool mean {:.1} Hz/neuron = {:.3} x the {:.0} Hz physiological maximum (POWER_MN_MAX_HZ) \
+        "pool mean {:.1} Hz/neuron = {:.3} x the {:.0} Hz FULL-STROKE rate \
+         (POWER_MN_FULL_STROKE_HZ, the top of the measured in-flight band) \
          and {:.3} x the {:.0} Hz refractory ceiling",
         pool_hz,
-        pool_hz / 20.0,
-        crate::groups::POWER_MN_MAX_HZ,
+        pool_hz / crate::groups::POWER_MN_FULL_STROKE_HZ as f64,
+        crate::groups::POWER_MN_FULL_STROKE_HZ,
         pool_hz / ceil_hz,
         ceil_hz
     );
@@ -262,15 +280,15 @@ pub fn mn_audit(pack: &Path, o: &AuditOptions) -> Result<()> {
     println!(
         "\n-- GRADEDNESS: per-neuron rate distribution ({} neurons) --\n\
          min {:.1}  q1 {:.1}  median {:.1}  q3 {:.1}  max {:.1}  Hz/neuron; \
-         3-20 Hz physiological band = [{:.0}-{:.0} Hz working range]",
+         measured in-flight working band = [{:.0}-{:.0} Hz]",
         members.len(),
         q(0.0),
         q(0.25),
         q(0.50),
         q(0.75),
         q(1.0),
-        crate::groups::POWER_MN_MAX_HZ * 0.15,
-        crate::groups::POWER_MN_MAX_HZ
+        crate::groups::POWER_MN_BAND_LO_HZ,
+        crate::groups::POWER_MN_BAND_HI_HZ
     );
     println!(
         "  ==    0 Hz   {:>3}  {:>6.1}%   (silent)\n\
@@ -588,6 +606,128 @@ pub fn mn_audit(pack: &Path, o: &AuditOptions) -> Result<()> {
         (gap / k) / c_mean.abs().max(1.0),
         net_hz,
         net_hz / ((gap / k) / c_mean.abs().max(1.0))
+    );
+
+    // ------------------------------------------------- force versus rate
+    // The rate-to-force map is a pure function of the pool's firing rate, so
+    // these are exactly the numbers `body.rs` turns into stroke amplitude --
+    // printed here rather than measured inside the run. `lift/W = 1.0` is
+    // hover.
+    let fs = crate::groups::POWER_MN_FULL_STROKE_HZ;
+    let band_lo = crate::groups::POWER_MN_BAND_LO_HZ;
+    let band_hi = crate::groups::POWER_MN_BAND_HI_HZ;
+    let (mut h_lo, mut h_hi) = (0.01f32, crate::groups::POWER_MN_MANOEUVRE_MAX_HZ);
+    for _ in 0..80 {
+        let mid = 0.5 * (h_lo + h_hi);
+        if crate::body::lift_ratio_at_rate(mid) < 1.0 {
+            h_lo = mid;
+        } else {
+            h_hi = mid;
+        }
+    }
+    let hover = 0.5 * (h_lo + h_hi);
+    let fs_lift = crate::body::lift_ratio_at_activation(1.0);
+    // The measured relation, in absolute units. Gordon & Dickinson's flies
+    // SUSTAIN flight at ~5 Hz/neuron, so 5 Hz is taken as the rate at which the
+    // measured power supports the body; the curve's shape is the measured
+    // exponent. This gives the measured law an absolute anchor against which
+    // the model's own hover rate can be read, instead of renormalising the two
+    // curves to each other (which would make the comparison a tautology).
+    let meas = |f: f32| -> f32 { (f / 5.0).powf(crate::body::POWER_RATE_EXPONENT) };
+    // The SUPERSEDED chain, so the before/after relation is inspectable in one
+    // table: the old read-out was the raw 2 ms window occupancy of the
+    // 12-member pool (one spike reads 41.7 Hz/neuron, so it clamps, and the
+    // mean of the clamped value is `1-(1-0.002f)^12` -- the closed form in
+    // docs/motor-mn-calibration.md §4.1), normalised by the 20 Hz anchor; and
+    // the old amplitude map was `MAX*(0.12 + 0.88 a)`. Lift is amplitude
+    // squared, so the old curve is `fs_lift * old_amp(f)^2`.
+    let old_a = |f: f32| -> f32 { (1.0 - (1.0 - 0.002 * f).powi(12)).min(1.0) };
+    let old_amp = |f: f32| -> f32 { (0.12 + 0.88 * old_a(f)).min(1.0) };
+    let old_lift = |f: f32| -> f32 { fs_lift * old_amp(f) * old_amp(f) };
+    let (mut o_lo, mut o_hi) = (0.01f32, 500.0f32);
+    for _ in 0..80 {
+        let mid = 0.5 * (o_lo + o_hi);
+        if old_lift(mid) < 1.0 {
+            o_lo = mid;
+        } else {
+            o_hi = mid;
+        }
+    }
+    let old_hover = 0.5 * (o_lo + o_hi);
+    println!(
+        "\n-- FORCE versus MOTOR FIRING RATE: the map `body.rs` applies --\n\
+         after: a = f / {fs:.0} Hz (POWER_MN_FULL_STROKE_HZ); amp = {:.0} deg * a^{:.4}\n\
+         \x20      lift/W = 2 * F_wing(amp) / (m*g), and full stroke gives {fs_lift:.3}\n\
+         before: a = the clamped 2 ms window occupancy, anchored at 20 Hz; \
+         amp = {:.0} deg * (0.12 + 0.88 a)\n\
+         measured (Gordon & Dickinson 2006, PNAS 103(11):4311): a COMPRESSIVE power law, \
+         power ∝ f^{:.3}\n\
+         \x20      (a 3-fold spike-frequency change, 3 -> 9 Hz, gave a 1.7-fold power change; \
+         the paper's rounded\n\
+         \x20     3-fold-to-2-fold statement gives 0.63). 'meas@5Hz' is that same law with \
+         weight support at the\n\
+         \x20     animal's measured sustained rate of ~5 Hz/neuron, which is the only absolute \
+         anchor the measurement gives.",
+        crate::wing::STROKE_AMP_MAX.to_degrees(),
+        crate::body::STROKE_AMP_EXPONENT,
+        crate::wing::STROKE_AMP_MAX.to_degrees(),
+        crate::body::POWER_RATE_EXPONENT,
+    );
+    println!(
+        "{:>7} {:>7} {:>9} {:>9} {:>9} {:>9} {:>9}",
+        "Hz", "a", "amp/MAX", "lift/W", "before a", "before", "meas@5Hz"
+    );
+    for &f in &[
+        0.0f32, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 12.0, 15.0, 20.0, 30.0, 40.0,
+        60.0, 80.0, 110.0,
+    ] {
+        let a = (f / fs).min(1.0);
+        println!(
+            "{:>7.1} {:>7.3} {:>9.3} {:>9.3} {:>9.3} {:>9.3} {:>9.3}",
+            f,
+            a,
+            crate::body::stroke_amp_for_activation(a) / crate::wing::STROKE_AMP_MAX,
+            crate::body::lift_ratio_at_rate(f),
+            old_a(f),
+            old_lift(f),
+            meas(f),
+        );
+    }
+    let ex_band = (crate::body::lift_ratio_at_rate(band_hi)
+        / crate::body::lift_ratio_at_rate(band_lo))
+    .ln()
+        / (band_hi / band_lo).ln();
+    let span93 = crate::body::lift_ratio_at_rate(9.0) / crate::body::lift_ratio_at_rate(3.0);
+    let old_span93 = old_lift(9.0) / old_lift(3.0);
+    println!(
+        "  produced exponent over the measured in-flight band {band_lo:.0}-{band_hi:.0} Hz: \
+         {ex_band:.3} (target {:.3});\n\
+         \x20 over the citation's own 3-9 Hz span the model gives {span93:.2}x \
+         (measured 1.7x, rounded statement 2.0x); the BEFORE chain gave {old_span93:.2}x",
+        crate::body::POWER_RATE_EXPONENT,
+    );
+    println!(
+        "  HOVER (lift/W = 1.0) at {hover:.2} Hz/neuron = {:.2}x the animal's measured ~5 Hz \
+         sustained rate, {:.2}x the {band_lo:.0} Hz band floor, {:.2}x the {band_hi:.0} Hz band top.\n\
+         \x20 before, the same body did not hover until {old_hover:.0} Hz/neuron = {:.1}x the \
+         {band_hi:.0} Hz band top.\n\
+         \x20 measured in-flight band {band_lo:.0}-{band_hi:.0} Hz. {}",
+        hover / 5.0,
+        hover / band_lo,
+        hover / band_hi,
+        old_hover / band_hi,
+        if hover >= band_lo && hover <= band_hi {
+            "INSIDE the measured band."
+        } else {
+            "OUTSIDE the measured band: this is a re-tuned scale, not a grounded map."
+        }
+    );
+    let pool_lift = crate::body::lift_ratio_at_rate(pool_hz as f32);
+    println!(
+        "  this run's pool rate {pool_hz:.1} Hz/neuron -> a = {:.3} -> lift/W = {pool_lift:.3} \
+         ({} the hover point)",
+        (pool_hz / fs as f64).min(1.0),
+        if pool_lift >= 1.0 { "above" } else { "below" }
     );
 
     Ok(())

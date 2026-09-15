@@ -61,10 +61,6 @@ pub const WINGBEAT_HZ: f32 = 200.0;
 /// in free flight; 158 deg = 2.757 rad.
 pub const STROKE_AMP_MAX: f32 = 2.757;
 
-/// Amplitude floor: a wing with zero motor drive still sweeps a little, which
-/// is what the old `0.12 + 0.95 * power` mapping already encoded.
-pub const STROKE_AMP_MIN: f32 = 0.12 * STROKE_AMP_MAX;
-
 /// Body mass. [M] 0.983 mg (flybody / Vaxenburg et al. 2025).
 pub const FLY_MASS: f32 = 0.983;
 
