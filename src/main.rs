@@ -45,6 +45,7 @@ fn usage() -> ! {
          \x20 flight-test  [--seconds N] [--seed S] [--altitude MM]\n\
          \x20 yaw-probe    [--seconds N] [--seed S] [--every N]   instrumented yaw: torque, rates, motor asymmetry\n\
          \x20 haltere-probe [--seed S] [--trials N] [--amplitude R] [--out FILE]\n\
+         \x20 loom-probe    [--seed S] [--trials N] [--levels 0.25,0.5,1,2] [--out FILE]\n\
          \x20 stim-sweep    [--seconds N] [--seed S] [--hz 0,10,50,150,300,600]   drive the vnc_sensory replay and read the motor pools\n\
          \x20 mn-audit      [--group NAME] [--seconds N] [--seed S] [--top N]   per-neuron rate + E/I input of one motor pool\n\
          \x20 serve   [--pack DIR] [--port N] [--seconds N] [--rate HZ] [--seed S] [--targets FILE]\n"
@@ -331,6 +332,35 @@ fn main() -> Result<()> {
                     .unwrap_or(25.0),
             };
             analyze::rotation_probe(&pack_path, &o, &p)
+        }
+        "loom-probe" => {
+            // Open-loop looming stimulus probe: the closed loop cannot ask
+            // whether the visual steering pathway works, because there the loom
+            // channel is one geometric scalar driven equally into both
+            // `visual_loom` pools and saturated while the fly is on the walls.
+            // This imposes the stimulus instead -- both signs, several rates --
+            // and measures the steering differential and the yaw response
+            // against a null control. Stimulus only: never the wiring.
+            let o = analyze::Options {
+                seconds: 0.0,
+                seed: args.u64("seed", 7),
+                sample_every: 1,
+                out: PathBuf::from(args.get("out").unwrap_or("runs/loom-probe")),
+            };
+            let levels: Vec<f32> = args
+                .get("levels")
+                .unwrap_or("0.25,0.5,1,2")
+                .split(',')
+                .filter_map(|s| s.trim().parse().ok())
+                .collect();
+            let p = analyze::LoomProbeOptions {
+                warmup_s: args.f64("warmup", 10.0),
+                trials_per_condition: args.u64("trials", 12) as u32,
+                interval_s: args.f64("interval", 0.25),
+                response_ms: args.f64("response", 200.0),
+                levels,
+            };
+            analyze::loom_probe(&pack_path, &o, &p)
         }
         "probe" => {
             // Headless closed loop: is the fly actually moving, and is anything
