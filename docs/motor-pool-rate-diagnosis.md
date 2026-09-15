@@ -383,3 +383,14 @@ the digit:
   to 40th wingbeat; tethered working range ~3-12 Hz.
 - Lehmann, Skandalis & Berthe (2013), J. R. Soc. Interface 10:20121050.
   doi:10.1098/rsif.2012.1050 — 5-20 Hz maintains intramuscular calcium.
+## 10. Follow-up: the per-cell motor-neuron calibration
+
+This diagnosis is acted on in [`motor-mn-calibration.md`](motor-mn-calibration.md),
+which gives the flight power motor neurons a per-cell input gain derived from the
+measured input resistance of MN5 and the measured rheobase, and reports the resulting
+gradedness and behaviour. Summary of that result: the pool becomes genuinely graded
+(8.0 Hz/neuron at the default drive, actuator command spanning 0.00-0.29 instead of
+pinned at 1.00 in 84.7 % of samples), and **the fly no longer flies** — because the
+body's read-out and force chain require a rail-level command (pool >= ~80 Hz/neuron to
+take off, against a measured maximum of 20 Hz). The network operating point is
+compatible with a graded motor pool; this *body* is not.

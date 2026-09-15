@@ -24,6 +24,17 @@ pub fn run(pack: &Path, o: &Options) -> Result<()> {
         w.conn.n, w.conn.m, w.vnc_targets, w.vnc_hz
     );
     println!(
+        "analyze: motor-neuron calibration: per-cell input gain {:.4} on {} flight power MN cells \
+         ({}), every other neuron 1.0 -- see sim::MN_POWER_INPUT_GAIN",
+        w.mn_gain,
+        w.mn_cells,
+        w.mn_members
+            .iter()
+            .map(|c| c.to_string())
+            .collect::<Vec<_>>()
+            .join(",")
+    );
+    println!(
         "analyze: {} s of simulated time = {} control windows of {:.1} ms (sample every {})",
         o.seconds,
         total_windows,
