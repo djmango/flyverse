@@ -655,35 +655,47 @@
       "side": "right"
     },
     "motor_flight_steering_left": {
-      "biological_scope": "direct b1/b2/b3 wing motor neuron steering pool",
+      "biological_scope": "spec steering muscle set tp1/tp2/hg1-hg4/b1-b3 wing motor neurons (9 per side); docs/physical-model-spec.md \u00a72",
       "evidence_category": "published_flight_wing_motor",
       "pack_resolution": {
         "missing_root_ids": [],
-        "present_count": 3,
-        "selected_count": 3
+        "present_count": 9,
+        "selected_count": 9
       },
       "root_ids": [
+        800241,
+        800847,
+        801021,
         801137,
         801292,
-        801310
+        801310,
+        801949,
+        802315,
+        804131
       ],
-      "selector": "status == Traced and superclass == vnc_motor and subclass == wm and type in {b1 MN,b2 MN,b3 MN} and somaSide == {side}",
+      "selector": "status == Traced and superclass == vnc_motor and subclass == wm and type in {b1 MN,b2 MN,b3 MN,hg1 MN,hg2 MN,hg3 MN,hg4 MN,tp1 MN,tp2 MN} and somaSide == L",
       "side": "left"
     },
     "motor_flight_steering_right": {
-      "biological_scope": "direct b1/b2/b3 wing motor neuron steering pool",
+      "biological_scope": "spec steering muscle set tp1/tp2/hg1-hg4/b1-b3 wing motor neurons (9 per side); docs/physical-model-spec.md \u00a72",
       "evidence_category": "published_flight_wing_motor",
       "pack_resolution": {
         "missing_root_ids": [],
-        "present_count": 3,
-        "selected_count": 3
+        "present_count": 9,
+        "selected_count": 9
       },
       "root_ids": [
+        800899,
+        800906,
+        800917,
         801350,
+        802028,
         802120,
-        804301
+        803891,
+        804301,
+        903852
       ],
-      "selector": "status == Traced and superclass == vnc_motor and subclass == wm and type in {b1 MN,b2 MN,b3 MN} and somaSide == {side}",
+      "selector": "status == Traced and superclass == vnc_motor and subclass == wm and type in {b1 MN,b2 MN,b3 MN,hg1 MN,hg2 MN,hg3 MN,hg4 MN,tp1 MN,tp2 MN} and somaSide == R",
       "side": "right"
     },
     "motor_landing_left": {
@@ -3144,13 +3156,13 @@
       },
       "motor_flight_steering_left": {
         "missing_root_ids": [],
-        "present_count": 3,
-        "selected_count": 3
+        "present_count": 9,
+        "selected_count": 9
       },
       "motor_flight_steering_right": {
         "missing_root_ids": [],
-        "present_count": 3,
-        "selected_count": 3
+        "present_count": 9,
+        "selected_count": 9
       },
       "motor_landing_left": {
         "missing_root_ids": [],
@@ -3258,8 +3270,8 @@
       "published_flight_wing_motor": {
         "groups": 4,
         "missing_root_ids": 0,
-        "present_root_ids": 30,
-        "selected_root_ids": 30
+        "present_root_ids": 42,
+        "selected_root_ids": 42
       },
       "published_gustatory_sensory": {
         "groups": 1,
@@ -3306,7 +3318,7 @@
     },
     "group_count": 28,
     "missing_root_ids": 0,
-    "present_root_ids": 2459,
-    "selected_root_ids": 2459
+    "present_root_ids": 2471,
+    "selected_root_ids": 2471
   }
 }
