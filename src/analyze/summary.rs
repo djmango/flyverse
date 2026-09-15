@@ -85,11 +85,15 @@ pub(crate) fn summarize(
     // Occupancy grids over the floor plan.
     const NX: usize = 12;
     const NY: usize = 9;
+    let (ax0, ax1, ay0, ay1) = (w.room.x[0], w.room.x[1], w.room.y[0], w.room.y[1]);
     let grid = |set: &Vec<Sample>| -> Vec<Vec<f64>> {
         let mut g = vec![vec![0f64; NX]; NY];
         for x in set {
-            let cx = (((x.x + 300.0) / 600.0) * NX as f32).floor().clamp(0.0, NX as f32 - 1.0) as usize;
-            let cy = (((x.y + 220.0) / 440.0) * NY as f32).floor().clamp(0.0, NY as f32 - 1.0) as usize;
+            // Binned over the arena actually simulated, not the shipped one:
+            // with FLYVERSE_ROOM_SCALE set, hard-coded bounds would put every
+            // sample in one cell and show a map that is an artefact of the bins.
+            let cx = (((x.x - ax0) / (ax1 - ax0)) * NX as f32).floor().clamp(0.0, NX as f32 - 1.0) as usize;
+            let cy = (((x.y - ay0) / (ay1 - ay0)) * NY as f32).floor().clamp(0.0, NY as f32 - 1.0) as usize;
             g[cy][cx] += 1.0;
         }
         let tot: f64 = g.iter().flat_map(|r| r.iter()).sum::<f64>().max(1.0);
@@ -169,6 +173,12 @@ pub(crate) fn summarize(
         / at;
     let steer_hz_l = mean(&col(&air, |x| x.steer_l_hz));
     let steer_hz_r = mean(&col(&air, |x| x.steer_r_hz));
+    // Spread of the airborne loom, a plain SD rather than the json! macro's
+    // block form (the macro reads a `{` after a key as an object literal).
+    let loom_mean = mean(&loom_v) as f64;
+    let loom_sd =
+        (loom_v.iter().map(|&x| (x as f64 - loom_mean) * (x as f64 - loom_mean)).sum::<f64>() / at)
+            .sqrt();
 
     serde_json::json!({
         "config": {
@@ -179,6 +189,16 @@ pub(crate) fn summarize(
             "dt_ms": DT_MS,
             "samples": s.len(),
             "pack": "official-pack",
+            // The arena actually simulated. Default is the shipped
+            // 600 x 440 x 220 mm; FLYVERSE_ROOM_SCALE / FLYVERSE_ROOM_HEIGHT
+            // move the walls only.
+            "arena_mm": {
+                "x": [w.room.x[0], w.room.x[1]],
+                "y": [w.room.y[0], w.room.y[1]],
+                "z": [w.room.z[0], w.room.z[1]],
+            },
+            "room_scale": crate::room::room_scale(),
+            "room_height_mm": crate::room::room_height_mm(),
         },
         "run": {
             "sim_seconds": sim_seconds,
@@ -308,6 +328,18 @@ pub(crate) fn summarize(
             "mean_abs_steer_when_loom_lt_0p2": calm_steer,
             "samples_imminent_wall": imminent.len(),
             "samples_calm": calm.len(),
+            // The loom DISTRIBUTION, not just its correlation. A fly that is
+            // always close to a wall sees a saturated loom, and a saturated
+            // constant carries no differential and so no steering information;
+            // these two keys are what separate "the loom is uninformative" from
+            // "the loom is informative and the fly ignores it". Airborne only,
+            // because the geometric loom is undefined below stall speed while
+            // grounded.
+            "mean_loom_airborne": loom_mean,
+            "pct_airborne_loom_gt_0p9": 100.0 * air.iter().filter(|x| x.loom > 0.9).count() as f64 / at,
+            "pct_airborne_loom_gt_0p5": 100.0 * air.iter().filter(|x| x.loom > 0.5).count() as f64 / at,
+            "pct_airborne_loom_lt_0p2": 100.0 * air.iter().filter(|x| x.loom < 0.2).count() as f64 / at,
+            "loom_sd_airborne": loom_sd,
         },
         "motors_mean": {
             "flight_power_l": mean(&col(s, |x| x.pow_l)),

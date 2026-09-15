@@ -264,6 +264,20 @@ pub struct World {
     pub no_sense: bool,
     /// Model indices that fired during the last control window.
     pub window_spikes: Vec<u32>,
+    /// Open-loop loom override: the (left, right) loom values, 0..1, delivered
+    /// to the two `visual_loom` drives in place of the geometric loom the room
+    /// would produce. `None` -- the default -- is the closed loop, and the code
+    /// path is then untouched.
+    ///
+    /// Why this exists. In the closed loop the loom channel is one geometric
+    /// scalar driven at the SAME rate into both `visual_loom_left` and
+    /// `visual_loom_right` (see `sense`), so it carries no left/right
+    /// differential by construction; and because the fly is pinned to the walls
+    /// it is also saturated, 85 % of airborne samples above 0.9. A constant
+    /// carries no information, so the closed loop cannot ask whether the visual
+    /// steering pathway works. This knob lets a probe impose the stimulus
+    /// instead of letting the fly produce it.
+    pub loom_imposed: Option<(f32, f32)>,
     /// Per-cell input gain actually applied to the flight power motor neurons
     /// (`MN_POWER_INPUT_GAIN`, or `$FLYVERSE_MN_GAIN`).
     pub mn_gain: f32,
@@ -379,8 +393,23 @@ impl World {
         let d_legtac_l = mk("leg_tactile_L", 0.0, 11);
         let d_legtac_r = mk("leg_tactile_R", 0.0, 12);
 
-        let room = room::ROOM;
+        let room = room::active();
         let food = room.food_home();
+        eprintln!(
+            "[flyverse] arena: {:.0} x {:.0} x {:.0} mm (x {:.0}..{:.0}, y {:.0}..{:.0}, z {:.0}..{:.0}); \
+             FLYVERSE_ROOM_SCALE={} FLYVERSE_ROOM_HEIGHT={}",
+            room.x[1] - room.x[0],
+            room.y[1] - room.y[0],
+            room.z[1] - room.z[0],
+            room.x[0],
+            room.x[1],
+            room.y[0],
+            room.y[1],
+            room.z[0],
+            room.z[1],
+            room::room_scale(),
+            room::room_height_mm().map(|h| h.to_string()).unwrap_or_else(|| "-".into()),
+        );
         let mut body = Body::new();
         body.reset();
         body.pos = [-220.0, -150.0, 0.0];
@@ -436,6 +465,7 @@ impl World {
             yaw_rate: 0.0,
             stim: Vec::with_capacity(512),
             window_spikes: Vec::with_capacity(4096),
+            loom_imposed: None,
             mn_gain,
             mn_cells,
             mn_members,
@@ -594,9 +624,21 @@ impl World {
         self.retina.update(self.body.pos, self.body.quat(), &self.room);
 
         // Loom: how fast the nearest wall ahead is filling the field of view.
-        let loom = self.loom();
-        self.d_loom_l.rate_hz = loom as f64 * 60.0;
-        self.d_loom_r.rate_hz = loom as f64 * 60.0;
+        //
+        // The geometric loom is ONE scalar and is delivered at the same rate to
+        // both `visual_loom` pools, so the channel as the closed loop wires it
+        // carries no left/right differential at all. The open-loop probe
+        // replaces the pair with an imposed one (`loom_imposed`) to ask whether
+        // a lateralised looming stimulus can reach the steering motor output.
+        let (loom_l, loom_r) = match self.loom_imposed {
+            Some((l, r)) => (l, r),
+            None => {
+                let loom = self.loom();
+                (loom, loom)
+            }
+        };
+        self.d_loom_l.rate_hz = loom_l as f64 * 60.0;
+        self.d_loom_r.rate_hz = loom_r as f64 * 60.0;
 
         // Haltere afferents: the only route by which the connectome can feel
         // that the body is rotating. Driven from the body's own angular
@@ -678,6 +720,39 @@ impl World {
         (1.0 - (ttc / 0.6).clamp(0.0, 1.0)).clamp(0.0, 1.0)
     }
 
+    /// The loom actually delivered to the two `visual_loom` drives this window,
+    /// 0..1: the mean of the imposed pair when a probe has taken the channel
+    /// over, and the geometric loom otherwise. The trace archives this rather
+    /// than the geometric value, so it never records a stimulus that did not
+    /// reach the brain.
+    pub fn loom_delivered(&self) -> f32 {
+        match self.loom_imposed {
+            Some((l, r)) => 0.5 * (l + r),
+            None => self.loom(),
+        }
+    }
+
+    /// Impose a loom stimulus: `left`/`right` are the loom values (0..1)
+    /// delivered to the two `visual_loom` pools instead of the geometric loom.
+    /// The drives run at 60 Hz * value, the same mapping the closed loop uses,
+    /// so the imposed stimulus lives on the channel's own scale.
+    ///
+    /// Measurement only: it changes the STIMULUS, never the wiring, and never
+    /// touches the body. With the retina on, this is the only lateralised
+    /// looming signal the connectome can receive.
+    pub fn set_imposed_loom(&mut self, left: f32, right: f32) {
+        // Only the lower bound is enforced. The closed loop's own range is
+        // 0..1 (a saturated loom), and 1.0 is what the probe calls "level 1";
+        // levels above it drive the pool harder than the loop can, which is
+        // legitimate for a dose-response and impossible to reach by accident.
+        self.loom_imposed = Some((left.max(0.0), right.max(0.0)));
+    }
+
+    /// Restore the closed-loop loom (the default state).
+    pub fn clear_imposed_loom(&mut self) {
+        self.loom_imposed = None;
+    }
+
     /// Current sensory drive snapshot. This is the entire interface between the
     /// room and the connectome: if a behaviour is not driven by one of these
     /// channels, the brain cannot know about it.
@@ -687,7 +762,7 @@ impl World {
             odor_r: self.odor_r,
             flow_l: self.flow_l,
             flow_r: self.flow_r,
-            loom: self.loom(),
+            loom: self.loom_delivered(),
             taste_hz: self.d_taste.rate_hz as f32,
             vnc_hz: self.vnc_hz as f32,
         }

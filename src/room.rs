@@ -16,6 +16,64 @@ pub const ROOM: Room = Room {
     odor_lambda: 95.0,
 };
 
+/// Horizontal scale factor for the arena: `FLYVERSE_ROOM_SCALE`, default 1.0.
+///
+/// A fly in a small box wall-follows; in a large arena it flies straighter. This
+/// knob is how the geometry half of that statement is tested: it multiplies the
+/// two horizontal semi-extents and (unless `FLYVERSE_ROOM_HEIGHT` says
+/// otherwise) the ceiling. Non-finite or non-positive values fall back to 1.0,
+/// so a bad value behaves like the default rather than producing a degenerate
+/// box.
+pub fn room_scale() -> f32 {
+    std::env::var("FLYVERSE_ROOM_SCALE")
+        .ok()
+        .and_then(|v| v.parse::<f32>().ok())
+        .filter(|v| v.is_finite() && *v > 0.0)
+        .unwrap_or(1.0)
+}
+
+/// Ceiling height in mm: `FLYVERSE_ROOM_HEIGHT`, or `None` for the scaled
+/// 220 mm. Setting it independently of the scale is what separates the two
+/// geometry questions: a wide floor with the shipped ceiling tests the
+/// horizontal crowding alone, and a tall ceiling at the shipped footprint tests
+/// whether the fly is banging its head (airborne altitude p95 is 187 mm and max
+/// 220 mm, i.e. the ceiling). A large value is a floorless run in effect.
+pub fn room_height_mm() -> Option<f32> {
+    std::env::var("FLYVERSE_ROOM_HEIGHT")
+        .ok()
+        .and_then(|v| v.parse::<f32>().ok())
+        .filter(|v| v.is_finite() && *v > 0.0)
+}
+
+/// The arena the world is actually built in.
+///
+/// Default: the shipped `ROOM`, returned by identity so a normal run is
+/// bit-identical (`ROOM` is `Copy`).
+///
+/// Only the six walls move. The table, the sugar cube (and hence `food_home`)
+/// and the odour field keep their absolute positions, and so does the spawn
+/// point (`World::new`): they are fixed landmarks, and scaling them would
+/// change the odour/taste question at the same time as the wall question. The
+/// consequence is that in a widened arena the fly starts far from every wall
+/// (at 4x, 1050 mm from the nearest), which is exactly the condition the loom
+/// channel needs in order to carry information.
+pub fn active() -> Room {
+    let s = room_scale();
+    let h = room_height_mm().unwrap_or(ROOM.z[1] * s);
+    if s == 1.0 && h == ROOM.z[1] {
+        return ROOM;
+    }
+    Room {
+        x: [ROOM.x[0] * s, ROOM.x[1] * s],
+        y: [ROOM.y[0] * s, ROOM.y[1] * s],
+        z: [ROOM.z[0], h],
+        table: ROOM.table,
+        wind: ROOM.wind,
+        odor_amp: ROOM.odor_amp,
+        odor_lambda: ROOM.odor_lambda,
+    }
+}
+
 #[derive(Clone, Copy)]
 pub struct Table {
     pub x: [f32; 2],

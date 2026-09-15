@@ -228,7 +228,7 @@ function fit(id, h){
   }
   x.strokeStyle='#30363d'; x.strokeRect(0.5,0.5,W-1,H-1);
   x.fillStyle='#8b949e'; x.font='10px ui-monospace,monospace';
-  x.fillText('x -300..300 mm', 6, H-6); x.fillText('y -220..220 mm  (top-down)', 6, 12);
+  x.fillText('x __ROOMX__ mm', 6, H-6); x.fillText('y __ROOMY__ mm  (top-down)', 6, 12);
 })();
 
 // Altitude histogram
@@ -307,9 +307,19 @@ pub(crate) fn write_report(path: &Path, samples: &[Sample], summary: &serde_json
     let stride = (samples.len() / 1500).max(1);
     let slim: Vec<&Sample> = samples.iter().step_by(stride).collect();
     let data = serde_json::to_string(&slim)?;
+    // The floor-plan axes are labelled from the arena actually simulated, so a
+    // scaled run (FLYVERSE_ROOM_SCALE) does not label its map with the shipped
+    // bounds.
+    let bound = |axis: &str, i: usize| -> f64 {
+        summary["config"]["arena_mm"][axis][i]
+            .as_f64()
+            .unwrap_or(f64::NAN)
+    };
     let html = TEMPLATE
         .replace("__DATA__", &data)
-        .replace("__SUMMARY__", &serde_json::to_string(summary)?);
+        .replace("__SUMMARY__", &serde_json::to_string(summary)?)
+        .replace("__ROOMX__", &format!("{:.0}..{:.0}", bound("x", 0), bound("x", 1)))
+        .replace("__ROOMY__", &format!("{:.0}..{:.0}", bound("y", 0), bound("y", 1)));
     std::fs::write(path, html)?;
     Ok(())
 }
