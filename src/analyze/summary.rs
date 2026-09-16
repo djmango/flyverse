@@ -16,6 +16,7 @@ pub(crate) fn summarize(
     sim_seconds: f64,
     wall_seconds: f64,
     o: &Options,
+    hand: Option<serde_json::Value>,
 ) -> serde_json::Value {
     let n = s.len().max(1);
     let air = sel(s, |x| x.mode == 1 || x.mode == 2 || x.mode == 3);
@@ -193,7 +194,7 @@ pub(crate) fn summarize(
         (loom_v.iter().map(|&x| (x as f64 - loom_mean) * (x as f64 - loom_mean)).sum::<f64>() / at)
             .sqrt();
 
-    serde_json::json!({
+    let mut out = serde_json::json!({
         "config": {
             "seed": o.seed,
             "seconds": o.seconds,
@@ -469,5 +470,12 @@ pub(crate) fn summarize(
         "occupancy_ground": grid(&sel(s, |x| x.mode == 0)),
         "speed_hist_25mm_s": speed_hist,
         "cruise_samples": cruise.len(),
-    })
+    });
+    // The hand's block, present only when a hand was in the room. With it
+    // absent the summary has exactly the keys it had before the hand existed, so
+    // the default run's `summary.json` is unchanged as well as its `trace.csv`.
+    if let Some(h) = hand {
+        out["hand"] = h;
+    }
+    out
 }
