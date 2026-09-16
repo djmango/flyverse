@@ -469,7 +469,10 @@ render's `*.meta.json` records the `--run` directory, the `view` and the
 table above with `view=fpv|tps` and `camMode=4|5`, 288 frames, 12.000 s,
 1600x900. All 20 were re-downloaded from their share URL and `md5sum`-compared
 to the local file (`200`, byte-identical); the full 39-row table is in
-`LINKS.md`.
+`LINKS.md`. The new camera is as re-runnable as the old ones:
+`hand-slap-static-control-seed7-fpv.mp4` re-rendered from scratch in a fresh
+browser (`fly2video.sh`, same flags, a third port pair) came out byte-identical
+— `md5 27bd159fb5cca390ac11f307dacd9e23`, 1511859 bytes, both copies.
 
 **What the first-person set shows that the standing set cannot.** The camera is
 at the fly's own eyes and takes the body's own attitude, so the roll and pitch
