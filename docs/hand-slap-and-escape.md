@@ -243,7 +243,9 @@ So the pathway that carries the hand to the brain in this experiment is the phot
 array -- the `retina.push_events` route into the optic lobe columns -- and not the labelled
 loom drive. That is worth saying because the loom channel is the one the canonical escape
 story runs through, and in this room it is already at its ceiling when the hand arrives.
-The 4x arm (section 6) is the configuration where it is not.
+The 4x arm (section 5) is the configuration where it is not. The fast-slap arm (section 6)
+is the configuration where the labelled loom route does carry the hand, and where both
+conditions hold in one run.
 
 # 5. What the connectome did
 
@@ -329,7 +331,163 @@ on a saturated channel. The result is the same. The loom pool rates and delivere
 again identical between the static and the approach runs, and the body traces fingerprint
 as in the table above.
 
-# 6. Verdict
+# 6. The fast slap: the one run that holds both
+
+The last open item in this experiment was a tension between two arms rather than a result.
+The shipped arena delivers the palm to the retina, but its delivered loom sits at the room's
+own ceiling -- `0.9895` for both eyes, pinned by the floor under a parked fly -- before the
+hand does anything, so "the hand does not drive the loom pool" is uninformative there. The
+4x arena has loom range (airborne per-eye means of 0.55 to 0.75, against the `0.9895` a
+parked fly's eyes are pinned at) but the palm is never delivered to a flying seed: at most
+one column. No single run had held **both** "the palm reaches the retina" and "the loom
+channel has headroom (is unsaturated)".
+
+The 150 ms arm cannot hold them either, for a reason worth stating plainly, because it is a
+property of the trajectory and not of the fly. The trajectory's **origin** is fixed at the
+spawn point and only the *aim* is re-taken at launch, so a slap at a seed that has left the
+spawn is not the 300 mm terminal phase the arm is named for: seed 11's slap flies **495 mm**
+at 3.3 m/s (seed 7's, at the spawn, flies the nominal 300 mm). Arriving 150 ms stale, when
+the fly has moved ~150 mm, is why that slap lands 53 mm wide.
+
+The fast arm is the terminal phase at the speed the last 300 mm of a real slap is actually
+covered -- 6 m/s for a seed at the spawn -- via `FLYVERSE_HAND_DUR_MS=50`. The fly moves
+~50 mm during the sting instead of ~150 mm, and the sting is 25 control windows of genuinely
+time-varying stimulus. Two configurations were run on the same revision of the binary: the
+shipped arena (arm D) and the 4x arena (arm E). One run per (seed, configuration), 12 s,
+`--every 1`, seeds 7/11/23.
+
+**Delivery and the loom channel.** Columns are per eye, out of the 678 the left eye holds
+and the 784 the right one holds; `sting` is the 50 ms of the sting, `pre` the 500 ms before
+it; the launch column is origin -> aim, and it is 300 mm only for a seed still at spawn.
+
+| arm | seed | launch -> aim | palm on retina | peak cols L/R | delivered loom L pre->sting | delivered loom R pre->sting | loom pool R pre->sting |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| D 1x-fast | 7 | 300 mm / 5997 mm/s | 100% of sting, first 2000 ms | 361/328 (53.2%/41.8%) | 0.9895->0.9895 | 0.9894->0.9894 | 84->60 Hz |
+| D 1x-fast | 11 | 495 mm / 9907 mm/s | 20% of sting, first 2040 ms | 354/0 (52.2%/0.0%) | 0.9725->0.8417 | 0.9615->0.9732 | 58->80 Hz |
+| D 1x-fast | 23 | 300 mm / 5998 mm/s | 100% of sting, first 2000 ms | 361/328 (53.2%/41.8%) | 0.9895->0.9895 | 0.9894->0.9894 | 72->20 Hz |
+| E 4x-fast | 7 | 300 mm / 5998 mm/s | 100% of sting, first 2000 ms | 361/328 (53.2%/41.8%) | 0.9895->0.9895 | 0.9894->0.9894 | 84->60 Hz |
+| E 4x-fast | 11 | 671 mm / 13413 mm/s | **0%**, never seen | 0/0 | 0.9736->0.8511 | 0.9745->0.8576 | 60->80 Hz |
+| E 4x-fast | 23 | 1681 mm / 33616 mm/s | **0%**, never seen | 0/0 | 0.9777->0.9931 | 0.9723->0.8793 | 70->20 Hz |
+
+**The response and the body trace.** `sting` is the 50 ms of the sting, `post` the 500 ms
+after it, `rest` the remaining 9.5 s. The trace column is the approach run against the
+static-hand control, window by window: bit-identical rows / rows, and the maximum positional
+excursion.
+
+| arm | seed | yaw away sting (pre) | steer detrended away sting | radial v sting (pre) mm/s | speed pre/sting/post mm/s | takeoffs sting/post (approach vs static) | trace sting / post / rest |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| D 1x-fast | 7 | 100% (100% pre) | 0.0% (p 6e-08) | +0.1 (+0.1) | 0.2/0.2/268.6 | 0/1 vs 0/1 | 25/25 (0.000 mm) / 65/250 (134.0 mm) / 79/4726 (439.9 mm) |
+| D 1x-fast | 11 | 0% (0% pre) | 0.0% (p 6e-08) | +4.9 (-386.0) | 1001.0/119.7/197.0 | 0/0 vs 0/0 | 25/25 (0.000 mm) / 29/250 (55.1 mm) / 631/4726 (145.7 mm) |
+| D 1x-fast | 23 | 100% (100% pre) | 100% (p 6e-08) | +0.1 (+0.1) | 0.2/0.2/0.2 | 0/0 vs 0/0 | 25/25 (0.000 mm) / 209/250 (0.010 mm) / 206/4726 (659.0 mm) |
+| E 4x-fast | 7 | 100% (100% pre) | 76.0% (p 0.015) | +0.1 (+0.0) | 0.2/0.3/0.2 | 0/0 vs 0/0 | 25/25 (0.000 mm) / 179/250 (0.020 mm) / 654/4726 (1955.5 mm) |
+| E 4x-fast | 11 | 0% (0% pre) | 100% (p 6e-08) | -1823.9 (-733.9) | 1307.8/2005.8/1656.3 | 0/0 vs 0/0 | **25/25 (0.000 mm) / 250/250 (0.000 mm) / 4726/4726 (0.000 mm)** |
+| E 4x-fast | 23 | 12% (12% pre) | 100% (p 6e-08) | -482.9 (-1033.8) | 1340.4/987.1/71.8 | 0/0 vs 0/0 | 25/25 (0.000 mm) / 103/250 (7.5 mm) / 17/4726 (1516.6 mm) |
+
+One caveat about the response columns, because it applies to this whole arm: the analysis
+module defines its `pulse` window as the sting itself, so for a 50 ms sting the sign tests
+sample the approach only -- the palm arrives in the sting's last window, and every seed's
+sting sign test is genuinely identical between the static and the approach run. The tests
+are reported for completeness; the measurements that matter here are the body trace, the
+delivered loom and the pool rates, and a post-hoc sign test over the windows after contact
+(section 6.2).
+
+## 6.1 The run that holds both
+
+`fast1x/s11_approach` is that run: `FLYVERSE_HAND=approach FLYVERSE_HAND_DUR_MS=50`,
+seed 11, shipped arena.
+
+**The palm demonstrably reaches the retina.** The sting starts 495 mm out (the fly is not at
+spawn) and the palm is seen from 2040 ms, in 20% of the 25 sting windows. It peaks at **354
+of the left eye's 678 columns -- 52.2% of one eye at once**, and its nearest surface gets to
+**3.7 mm of the left eye inside the sting** and **1.4 mm of the right eye one sample later at
+2050 ms**, the first window after it. Mean columns on the palm over the sting, 17.4 against
+0.0 in the 500 ms before it.
+
+**The loom channel has headroom (it is unsaturated), and the palm's arrival is in it.** At
+the launch instant the delivered loom is **0.332 (left eye)** and **0.930 (right)** -- against
+the `0.9895` both eyes are pinned at in this room when the fly is parked -- and over the 500 ms
+before the sting the left eye's delivered loom runs **0.309 to 1.000**, over the sting itself
+0.332 to 0.980. Neither eye is sitting on the room's ceiling when the palm arrives, and the
+right-eye channel is worse than that: **it is silent**. At 2058 ms the right-eye loom drops
+from 0.9994 to **0.0000** -- nothing looming at all -- and it does so identically in both runs,
+before the palm has arrived and before the two runs diverge anywhere, so it is the fly's own
+motion and not the hand. That is what makes the next comparison clean rather than a
+saturation argument:
+
+- the delivered **right**-eye loom reads **0.9245 in the approach run and 0.0000 in the
+  control at 2058 ms**, and stays separated (0.9199, 0.5922, 0.0994, 0.0005) for the next
+  70 ms as the palm sweeps through and away -- against a lateral loom difference of 1.65e-4
+  over the whole pulse in the 150 ms shipped-arena arm;
+- the right `visual_loom` pool reads **500 Hz at 2062 ms** where the control reads **0 Hz**
+  (the pool's own 500 Hz spikes in the control are earlier, at 1980 and 2028 ms, before the
+  palm is anywhere near the eyes).
+
+So this is the first configuration in this document where the labelled loom route carries
+the hand, at a magnitude comparable to its own scale. It is also the first time the palm
+reaches the retina in a room where the loom is not already at its ceiling. Both conditions
+the earlier arms could only satisfy one at a time now hold in one run.
+
+## 6.2 Does the fly escape it? No.
+
+Same measures, same windows, against the static-hand control whose history is identical
+until the launch:
+
+- **The body is bit-identical through the sting** -- 25/25 windows, 0.000 mm -- while the
+  palm crosses the last 495 mm of the room and covers half of one eye. The divergence, when
+  it comes, follows the stimulus in the order and at the delays the optics predict: the
+  *sensory* columns (`lum_l`, `gr_l`) first differ at **2040 ms**, the sample in which the
+  palm first enters the left eye; the pooled spike count first differs at **2046 ms**, 6 ms
+  later, as the covered area grows from 1 to 64 columns; the *body* first differs at
+  **2094 ms**, by 0.0100 mm, 44 ms after contact. From there it reaches 55 mm over the 500 ms
+  after the sting and 146 mm by 12 s. Unlike the 150 ms arm's seed 11, this run *does* diverge
+  once the slap lands: at 52% of an eye the delivered stimulus is far larger than that arm's
+  late, near-miss sliver, and this connectome amplifies any optical difference at all. That is
+  the price of closing the gap, not a response -- the contrast is arm E's seed 11, where the
+  palm never reaches the retina and the two runs are bit-identical for all 6000 rows.
+- **No away direction.** The sting-window yaw and steering sign tests are identical between
+  the two runs (0% away, i.e. the one-signed yaw reads "toward", as it does for 250/250
+  pre-window samples). A post-hoc sign test over the 50-100 and 100-150 ms windows after
+  contact is also 0% away for both the yaw and the steering differential. The 95.6% "away"
+  that appears in the 150-650 ms window is the artefact the document already names, and the
+  numbers here show it exactly: the yaw rate is positive in **250/250** samples of that
+  window and in 250/250 of the pre-window too (+1.7 rad/s before the palm, +1.2 after) -- one
+  continuous turn that was already under way half a second before the hand existed -- while
+  in the same window the bearing to the palm flips sign (positive in 250/250 pre-window
+  samples, 11/250 at 150-650 ms, as the palm passes behind the fly). The same turn, read
+  against the flipped bearing, reads "away". The control's bearing does not flip -- its
+  parked palm stays at +1.75 rad throughout -- so the same test on it reads 0%.
+- **The fly's own radial motion is a coin flip.** +4.9 mm/s along the palm-to-body axis
+  during the sting (pre-window -386.0, i.e. the fly was closing), 60% of samples moving away.
+- **No takeoff, and no mode change.** In all six arm-D/E pairs the takeoff counter and the
+  mode are unchanged through the sting, and the only pair that changes either in the 500 ms
+  after it is seed 7 -- and it does so in *both* its runs, so that takeoff is the fly's own
+  schedule and not the palm's.
+- **Over 12 s the run that saw the palm is *less* directed, not more.** Seed 11: 62 wall hits
+  against the control's 108, 1 landing against 0, 10.0% of the run in cruise against 85.7%,
+  56.3% in the takeoff mode against 3.2%, 1327 mm of path against 1462 mm -- it takes off
+  more and gets nowhere, rather than flying away. The same asymmetry the 4x seed-23 case
+  shows (43 wall hits against 109, 63.9% cruise against 93.7%).
+
+## 6.3 Why the 4x fast arm still cannot hold both
+
+At `FLYVERSE_ROOM_SCALE=4` the fly is not the 1x fly: at 2 s (arm E) it is already doing
+**1.95 m/s** (seed 11) and **1.07 m/s** at the ceiling (seed 23), so the sting, even at 6 m/s
+of palm speed, is 13413 mm/s of travel over a fixed-origin 671 mm throw (33616 mm/s, 1681 mm,
+for seed 23). The fly covers **98 mm** (seed 11) and **53 mm** (seed 23) of its own travel
+during the 50 ms sting -- four and two times the 24 mm thickness of the palm -- so a palm
+aimed exactly at where the fly *was* (`aim_error_mm` = 0.0 at launch, both seeds) passes it:
+**0 columns in every sting window, for both seeds**. With the palm never delivered, the
+approach and static runs are **bit-identical for all 6000 rows** (seed 11), which is the
+cleanest control in the arm.
+
+So the arena with loom range is the arena where the palm cannot arrive, and the arena where
+the palm arrives is the arena where the loom needs a *flying* seed to have headroom. The 1x
+fast arm threads that needle because seed 11 is landing at t = 2 s -- speed 27.7 mm/s,
+airborne at 70 mm, with its nearest surface 11 mm off rather than the 0.16 mm floor a parked
+fly's eyes sit on -- so the delivered loom is 0.33, not the 0.99 a parked fly is pinned at.
+That is the run in section 6.1, and its answer is the same one every other arm gives.
+
+# 7. Verdict
 
 **The fly does not escape the hand, and there is no route by which it could have.**
 
@@ -347,24 +505,32 @@ as in the table above.
    in seed 11; the steering differential moves slightly *toward* in seed 7 with a larger
    effect in the static control, and not at all in seed 11; the fly's own radial motion is
    at the 49% level; no seed takes off during the pulse.
-4. **No pathway carries it.** The photoreceptor route delivers the hand to the optic lobe
-   (measured, section 4). The labelled loom route does not: the delivered loom moves by
-   1.65e-4 laterally at 1x because it is already pinned at 0.9895, and the loom pools'
-   firing rates are bit-identical between the static and approach runs. Whatever the
-   connectome does with the retinal image of a hand, it does not reach the descending motor
-   read-out in a way that moves the body.
+4. **No pathway carries it in a direction that matters.** The photoreceptor route delivers
+   the hand to the optic lobe (measured, section 4). In the shipped-arena arms the labelled
+   loom route does not: the delivered loom moves by 1.65e-4 laterally at 1x because it is
+   already pinned at 0.9895, and the loom pools' firing rates are bit-identical between the
+   static and approach runs. In the fast-slap arm (section 6.1) the channel is not pinned and
+   the route **does** carry the hand -- the delivered right-eye loom reads 0.9245 in the
+   approach against 0.0000 in the control at 2058 ms, and the right `visual_loom` pool reads
+   500 Hz where the control reads 0
+   -- and the answer is unchanged: the body is bit-identical through the sting, then diverges,
+   with no away direction and no takeoff. Whatever the connectome does with the retinal image
+   of a hand, it does not reach the descending motor read-out in a way that moves the body
+   away from it.
 
 This is a null with a different shape from the earlier ones. The luminance-step and colour
-nulls were "the stimulus landed and nothing moved above the noise floor"; this one is
-"the stimulus landed and the body was bit-identical to its control". With it, every
-stimulus class this room can present has been tested: a sustained single-eye luminance
-step, an equi-luminant colour change, and a temporally structured expanding dark edge.
-None of them drives steering. **No visual stimulus presented through this connectome's
-eyes moves its motor output**, and the reason is upstream of any reflex anyone might have
-wanted to add: the raw connectome's visual-to-steering projection is bilaterally balanced
-(verified at hop 2 against all 151.8M source rows -- identical edges, identical contact
-weights, ipsilateral excess of the wrong sign for a corrective reflex), so there is no
-lateral drive for a lateral stimulus to act on.
+nulls were "the stimulus landed and nothing moved above the noise floor"; the shipped-arena
+hand arm is the stronger "the stimulus landed and the body was bit-identical to its control".
+With it, every stimulus class this room can present has been tested: a sustained single-eye
+luminance step, an equi-luminant colour change, and a temporally structured expanding dark
+edge. None of them drives steering. The fast arm puts the strongest form of that test on the
+table -- palm on half an eye, the labelled looming channel carrying it, the body perturbed
+-- and the fly does not turn away; it flies less. **No visual stimulus presented through this
+connectome's eyes produces an away response**, and the reason is upstream of any reflex
+anyone might have wanted to add: the raw connectome's visual-to-steering projection is
+bilaterally balanced (verified at hop 2 against all 151.8M source rows -- identical edges,
+identical contact weights, ipsilateral excess of the wrong sign for a corrective reflex), so
+there is no lateral drive for a lateral stimulus to act on.
 
 ## What this does not show
 
@@ -381,8 +547,16 @@ lateral drive for a lateral stimulus to act on.
   therefore the strongest possible statement of "no response" but the weakest possible
   statement of "the stimulus was big". Seed 7, where the palm reaches 0.03 mm from the
   body centre with half of each eye covered, carries the delivery claim.
+- It does not separate a motor response from chaos amplification in the fast arm. There the
+  runs are bit-identical through the sting and then diverge (55 mm in the 500 ms after
+  contact, 146 mm by 12 s) once the palm is delivered over half an eye, and the divergence
+  is caused by the palm -- arm E's seed 11, with the palm never delivered, is bit-identical
+  for all 6000 rows. Whether the 12 s difference in cruise, wall hits and landings is the
+  connectome acting on the image or the amplification of a 1e-4 mm difference is not
+  settled by this measure; what is settled is that nothing in it is directed away from the
+  palm.
 
-# 7. Reproducing it
+# 8. Reproducing it
 
 ```
 cd /opt/data/workspaces/skg/flybrain/flyverse
@@ -400,6 +574,17 @@ done
 
 # the arm where the loom has range
 FLYVERSE_ROOM_SCALE=4 FLYVERSE_HAND=approach ./target/release/flyverse analyze --seconds 12 --seed 7 --every 1 --out /tmp/fv/hand4x/s7_approach
+
+# the fast slap (the terminal phase at 6 m/s): the shipped arena, seeds 7/11/23
+for s in 7 11 23; do
+  FLYVERSE_HAND=approach FLYVERSE_HAND_DUR_MS=50 ./target/release/flyverse analyze --seconds 12 --seed $s --every 1 --out /tmp/fv/fast1x/s${s}_approach
+  FLYVERSE_HAND=static   FLYVERSE_HAND_DUR_MS=50 ./target/release/flyverse analyze --seconds 12 --seed $s --every 1 --out /tmp/fv/fast1x/s${s}_static
+done
+# seed 11 at 1x is the run that holds both (section 6.1): the palm reaches the retina
+# (354 columns, 52% of one eye) and the delivered loom is not pinned (0.332 at launch,
+# 0.9245 -> 0.0000 against the static control at 2058 ms, right loom pool 500 Hz -> 0 Hz
+# at 2062 ms). The 4x arm of the same sting delivers nothing (section 6.3):
+FLYVERSE_ROOM_SCALE=4 FLYVERSE_HAND=approach FLYVERSE_HAND_DUR_MS=50 ./target/release/flyverse analyze --seconds 12 --seed 11 --every 1 --out /tmp/fv/fast4x/s11_approach
 ```
 
 Each run writes `trace.csv` (the body, unchanged schema), `summary.json` (with the `hand`
@@ -415,7 +600,7 @@ Every knob is listed in `src/room.rs` in the `active_hand` doc comment: mode, di
 launch distance, launch time, duration, aim point, palm half-extents, and whether the aim
 is re-taken at launch.
 
-# 8. What was added, and what was deliberately not
+# 9. What was added, and what was deliberately not
 
 New: `src/analyze/hand.rs` (telemetry + the response measurements). Changed: `src/room.rs`
 (the `Hand` geometry, the trajectory and its knobs), `src/vision.rs` (the `Surface::Hand`
@@ -424,6 +609,12 @@ coverage and nearest-distance accessors), `src/sim.rs` (the per-window placement
 aim re-take, plus the loom-pair accessor the earlier probe work added),
 `src/analyze/{run,summary}.rs` and `src/analyze.rs` (wiring). Nothing in `wasm/` and
 nothing in `web/`.
+
+The fast-slap arm (section 6) adds no code at all: it is `FLYVERSE_HAND_DUR_MS=50` on the
+same binary, and the 4x arena is `FLYVERSE_ROOM_SCALE=4`. No new knob, no new term, and no
+change to any default -- a run with no `FLYVERSE_HAND` still serialises exactly as it did
+before the hand existed, and the fast arm's own static/approach pair is bit-identical until
+the launch.
 
 Deliberately not added, and this is the point of the whole exercise: any term, gain,
 coefficient, threshold or gradient whose purpose is to make the fly move away from a
