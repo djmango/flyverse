@@ -1259,6 +1259,90 @@ async function boot() {
   console.log('[flyverse] boot done (skip=' + [...SKIP].join(',') + ')');
 }
 
+// ---------------------------------------------------------------- offline replay
+// Video pipeline hook. Drives the SAME scene, pose animation and HUD from a
+// recorded trace instead of the live SSE stream, stepping the renderer by hand so
+// a capture is tied to simulated time and is bit-reproducible. Nothing here runs
+// unless a driver calls `window.__flyverse.replay.start()`; the live path is
+// untouched and index.html behaves exactly as before.
+const replayState = { on: false, room: { scale: 1, height_mm: ROOM.size[2] } };
+
+/// Resize the arena shell to a linearly scaled room (the sim's own
+/// FLYVERSE_ROOM_SCALE / FLYVERSE_ROOM_HEIGHT, as recorded in summary.json).
+/// The whole roomGroup scales about the origin, which is the room centre in the
+/// horizontal plane and the floor plane in z -- the same transform the sim applies.
+function replaySetRoom(scale, heightMm) {
+  const s = (typeof scale === 'number' && scale > 0) ? scale : 1;
+  const hz = (typeof heightMm === 'number' && heightMm > 0) ? heightMm : ROOM.size[2] * s;
+  roomGroup.scale.set(s, s, hz / ROOM.size[2]);
+  ROOM.x = [-300 * s, 300 * s];
+  ROOM.y = [-220 * s, 220 * s];
+  ROOM.z = [0, hz];
+  ROOM.size = [600 * s, 440 * s, hz];
+  ROOM.centre.set(0, 0, hz / 2);
+  replayState.room = { scale: s, height_mm: hz };
+  camera.far = 6000 * Math.max(1, s);
+  camera.updateProjectionMatrix();
+  return replayState.room;
+}
+
+/// Take the render loop off rAF so the driver owns time. Also stops the live
+/// stream so a stray frame cannot overwrite a replayed one.
+function replayStart() {
+  replayState.on = true;
+  renderer.setAnimationLoop(null);
+  try { if (sse) { sse.close(); sse = null; } } catch (e) { /* already closed */ }
+  stopSpikePolling();
+  // Deterministic starting state. Until this call the live rAF loop had been
+  // advancing the wing phase, the camera lerp and the trail by a wall-clock
+  // amount, so every one of them is reset to a fixed value here. The camera and
+  // the fly pose converge during the driver's warm-up steps, but the wing phase
+  // accumulates and would otherwise differ run to run.
+  poseState.wingPhase = 0;
+  flyRoot.position.set(0, 0, 0);
+  flyRoot.quaternion.set(0, 0, 0, 1);
+  trailPts.length = 0;
+  trail.geometry.setDrawRange(0, 0);
+  trail.visible = false;
+  camState.mode = CAMS.CHASE;
+  camState.chaseDist = 24;
+  camState.orbit = { radius: 70, theta: 2.2, phi: 1.05 };
+  camera.position.set(0, 0, 0);
+  camera.up.set(0, 0, 1);
+  $('col-right') && ($('col-right').style.display = 'none');
+  $('brain-msg') && $('brain-msg').classList.add('hidden');
+  return true;
+}
+
+/// One deterministic frame: sim time `simT` seconds, fixed step `dt` seconds,
+/// frame payload shaped exactly like an `/api/stream` frame.
+function replayStep(simT, dt, f) {
+  applyFrame(f, simT);
+  // The left panel's link row is written by applyFrame; in replay the source is a
+  // trace file, not the live stream, and the panel must not claim otherwise.
+  setLink('replay (trace.csv)', 'warn');
+  const k = 1 - Math.exp(-dt / 0.055);
+  const far = flyRoot.position.distanceToSquared(pose.pos) > 40000;   // >200 mm: snap
+  if (far) {
+    flyRoot.position.copy(pose.pos);
+    flyRoot.quaternion.copy(pose.quat);
+  } else {
+    flyRoot.position.lerp(pose.pos, k);
+    flyRoot.quaternion.slerp(pose.quat, k);
+  }
+  updatePose(simT, dt, f);
+  updateCamera(dt);
+  updateTrail();
+  updateMarkers(simT);
+  renderer.render(scene, camera);
+  return {
+    pos: [flyRoot.position.x, flyRoot.position.y, flyRoot.position.z],
+    wingPhase: poseState.wingPhase,
+    trail: trailPts.length,
+    room: replayState.room,
+  };
+}
+
 // QA hook: lets an automated check read the live app state without a framework.
 window.__flyverse = {
   state: state,
@@ -1277,6 +1361,14 @@ window.__flyverse = {
     return n;
   },
   hasBody: function (short) { return !!bodyObjects[short]; },
+  replay: {
+    start: replayStart,
+    step: replayStep,
+    setRoom: replaySetRoom,
+    setCam: function (m) { setCamMode(m); return camState.mode; },
+    camState: camState,
+    state: replayState,
+  },
 };
 
 boot().catch(function (e) {
