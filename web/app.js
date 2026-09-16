@@ -331,6 +331,32 @@ const sugarHalo = new THREE.Mesh(
 );
 roomGroup.add(sugarHalo);
 
+// ------------------------------------------------- the fruit and the hand
+// The two scene objects the later experiments put in the room. The live page has
+// never drawn them (it knows the room, the table and the sugar cube only), and
+// the sim does not tell it where they are; the offline video replay supplies
+// them from the run's own records (summary.json `fruit`, hand.json `stimulus`,
+// hand.csv palm centre) and they stay invisible until it does.
+//
+// Both live in the WORLD frame in millimetres, added to the scene rather than to
+// roomGroup: the sim keeps the table, the fruit and the palm at absolute
+// positions when the walls scale (src/room.rs `active`), so scaling them with
+// the room would move them away from where the run's ray-casts put them.
+const fruitMat = new THREE.MeshLambertMaterial({ color: 0xc9342a });
+const fruitMesh = new THREE.Mesh(new THREE.SphereGeometry(1, 32, 20), fruitMat);
+fruitMesh.visible = false;
+scene.add(fruitMesh);
+const fruitGreyMat = new THREE.MeshLambertMaterial({ color: 0x8d8d8d });
+
+// The palm: an oriented box, 90 x 110 x 24 mm at the run's own half-extents,
+// dark against the room (the sim shades it at 0.18 of its diffuse reflectance).
+const handMesh = new THREE.Mesh(
+  new THREE.BoxGeometry(1, 1, 1),
+  new THREE.MeshLambertMaterial({ color: 0x7d5946, flatShading: true })
+);
+handMesh.visible = false;
+scene.add(handMesh);
+
 // fly ground marker + vertical beacon (makes the fly findable in wide views)
 const flyRing = new THREE.Mesh(
   new THREE.RingGeometry(6.4, 7.6, 40),
@@ -1265,7 +1291,7 @@ async function boot() {
 // a capture is tied to simulated time and is bit-reproducible. Nothing here runs
 // unless a driver calls `window.__flyverse.replay.start()`; the live path is
 // untouched and index.html behaves exactly as before.
-const replayState = { on: false, room: { scale: 1, height_mm: ROOM.size[2] } };
+const replayState = { on: false, room: { scale: 1, height_mm: ROOM.size[2] }, fruit: null, hand: null };
 
 /// Resize the arena shell to a linearly scaled room (the sim's own
 /// FLYVERSE_ROOM_SCALE / FLYVERSE_ROOM_HEIGHT, as recorded in summary.json).
@@ -1309,15 +1335,67 @@ function replayStart() {
   camState.orbit = { radius: 70, theta: 2.2, phi: 1.05 };
   camera.position.set(0, 0, 0);
   camera.up.set(0, 0, 1);
+  // Both stimuli start absent on every replay; a driver that has the run's
+  // records supplies them right after this call, and one that does not leaves
+  // them out of the picture rather than drawing them at a guessed place.
+  fruitMesh.visible = false;
+  handMesh.visible = false;
+  replayState.fruit = null;
+  replayState.hand = null;
   $('col-right') && ($('col-right').style.display = 'none');
   $('brain-msg') && $('brain-msg').classList.add('hidden');
   return true;
 }
 
+/// Place the run's fruit and palm from the run's own records, or clear both when
+/// the run recorded neither. `s` is `{fruit: {c, r, grey}|null, hand: {half,
+/// axes}|null}`; the palm's position then comes per frame from `setPalm`. The
+/// object geometry is the run's: `fruit.radius_mm` and `hand.palm_half_mm` are
+/// read, not assumed.
+const _basis = new THREE.Matrix4();
+const _bv = (a) => new THREE.Vector3(a[0], a[1], a[2]);
+function replaySetStimulus(s) {
+  const f = s && s.fruit;
+  if (f && Array.isArray(f.c) && f.c.length === 3 && typeof f.r === 'number' && f.r > 0) {
+    fruitMesh.material = f.grey ? fruitGreyMat : fruitMat;
+    fruitMesh.scale.setScalar(f.r);
+    fruitMesh.position.set(f.c[0], f.c[1], f.c[2]);
+    fruitMesh.visible = true;
+    replayState.fruit = { c: f.c.slice(), r: f.r, grey: !!f.grey };
+  } else {
+    fruitMesh.visible = false;
+    replayState.fruit = null;
+  }
+  const h = s && s.hand;
+  if (h && Array.isArray(h.half) && Array.isArray(h.axes) && h.axes.length === 3) {
+    handMesh.scale.set(2 * h.half[0], 2 * h.half[1], 2 * h.half[2]);
+    _basis.makeBasis(_bv(h.axes[0]), _bv(h.axes[1]), _bv(h.axes[2]));
+    handMesh.quaternion.setFromRotationMatrix(_basis);
+    // Hidden until the first palm centre arrives: the driver supplies one on
+    // every step, so a palm is never drawn at a position nobody recorded.
+    handMesh.visible = false;
+    replayState.hand = { half: h.half.slice(), axes: h.axes.map((a) => a.slice()) };
+  } else {
+    handMesh.visible = false;
+    replayState.hand = null;
+  }
+  return { fruit: !!replayState.fruit, hand: !!replayState.hand };
+}
+
+/// The palm's centre at this frame, mm, world frame -- hand.csv's hx,hy,hz, the
+/// position the run's own optics ray-cast against.
+function replaySetPalm(c) {
+  if (!replayState.hand || !Array.isArray(c) || c.length !== 3) return false;
+  handMesh.position.set(c[0], c[1], c[2]);
+  handMesh.visible = true;
+  return true;
+}
+
 /// One deterministic frame: sim time `simT` seconds, fixed step `dt` seconds,
 /// frame payload shaped exactly like an `/api/stream` frame.
-function replayStep(simT, dt, f) {
+function replayStep(simT, dt, f, stim) {
   applyFrame(f, simT);
+  if (stim && stim.hand_c) replaySetPalm(stim.hand_c);
   // The left panel's link row is written by applyFrame; in replay the source is a
   // trace file, not the live stream, and the panel must not claim otherwise.
   setLink('replay (trace.csv)', 'warn');
@@ -1365,6 +1443,8 @@ window.__flyverse = {
     start: replayStart,
     step: replayStep,
     setRoom: replaySetRoom,
+    setStimulus: replaySetStimulus,
+    setPalm: replaySetPalm,
     setCam: function (m) { setCamMode(m); return camState.mode; },
     camState: camState,
     state: replayState,

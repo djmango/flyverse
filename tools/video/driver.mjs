@@ -76,6 +76,85 @@ const summary = JSON.parse(readFileSync(join(runDir, 'summary.json'), 'utf8'));
 const cfg = summary.config || {};
 const arena = cfg.arena_mm || cfg.room || null;
 
+// ------------------------------------------------- stimuli recorded by the run
+// Two later experiments put objects in the room and record them per run:
+//
+//   * the fruit: summary.json `fruit` (present, centre_mm, radius_mm,
+//     rendered_grey, distance_mm, optics), and trace.csv columns fruit_dist /
+//     fruit_az / fruit_cols;
+//   * the hand: summary.json + hand.json `stimulus` (palm_half_mm, origin_mm,
+//     contact_mm, start_ms, duration_ms, mode, approach_dir) and the per-sample
+//     palm centre in hand.csv (hx, hy, hz).
+//
+// A run that records none of it draws neither object and the panel says the
+// field is not recorded. Nothing is placed at an assumed position.
+const fruit = summary.fruit || null;
+const handTrace = (function () {
+  try { return readCsv(join(runDir, 'hand.csv')); } catch (e) { return null; }
+})();
+const handStim = (function () {
+  try {
+    const hj = JSON.parse(readFileSync(join(runDir, 'hand.json'), 'utf8'));
+    if (hj && hj.stimulus) return hj.stimulus;
+  } catch (e) { /* no hand.json: the summary's hand block carries the same stimulus block */ }
+  return summary.hand && summary.hand.stimulus ? summary.hand.stimulus : null;
+})();
+
+const num = (x) => (typeof x === 'number' && isFinite(x) ? x : null);
+const mm1 = (x) => (num(x) === null ? '?' : (Math.round(x * 10) / 10).toString());
+const vecText = (v) => (Array.isArray(v) && v.length === 3 ? '(' + v.map(mm1).join(',') + ')' : '?');
+
+// Palm frame: `approach_dir` in the records is the palm's own normal (axes[2]),
+// the direction it presents to the fly (src/room.rs `hand_axes` / `describe`).
+// The other two axes are rebuilt here with the sim's own construction:
+// width = z x normal, length = normal x width.
+function cross3(a, b) {
+  return [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+}
+function unit3(v) {
+  const n = Math.hypot(v[0], v[1], v[2]) || 1;
+  return [v[0] / n, v[1] / n, v[2] / n];
+}
+function handAxes(normal) {
+  const n = unit3(normal);
+  let w = cross3([0, 0, 1], n);
+  if (Math.hypot(w[0], w[1], w[2]) < 1e-3) w = cross3([1, 0, 0], n);
+  const wu = unit3(w);
+  return [wu, unit3(cross3(n, wu)), n];
+}
+
+const fruitSpec = fruit && fruit.present === true && Array.isArray(fruit.centre_mm) && num(fruit.radius_mm)
+  ? { c: fruit.centre_mm.map((x) => Number(x)), r: Number(fruit.radius_mm), grey: !!fruit.rendered_grey }
+  : null;
+const handSpec = handStim && Array.isArray(handStim.approach_dir) && Array.isArray(handStim.palm_half_mm)
+  ? {
+      half: handStim.palm_half_mm.map((x) => Number(x)),
+      axes: handAxes(handStim.approach_dir.map((x) => Number(x))),
+      mode: handStim.mode,
+    }
+  : null;
+
+// The `target / food place` row, from the run's own fruit block. Runs that
+// predate that block keep the old wording -- byte for byte, because their videos
+// are already rendered and that string is what those frames say.
+//
+// The fruit is the only target place any run records; the sugar cube's place is
+// not a recorded field (the scene draws it at the visualiser's own default), so
+// the row reports the fruit and nothing else.
+const targetText = (function () {
+  if (!fruit) return 'not recorded (summary has no fruit/target place)';
+  if (fruit.present !== true) return 'absent [summary.fruit.present=false]';
+  const r = num(fruit.radius_mm) === null ? 'r not recorded' : 'r ' + mm1(fruit.radius_mm) + ' mm';
+  const c = Array.isArray(fruit.centre_mm) ? vecText(fruit.centre_mm) + ' mm, ' : '';
+  return c + r + ' [summary.fruit]';
+})();
+
+const palmText = handStim
+  ? (handStim.mode === 'approaching' ? 'approach' : String(handStim.mode)) +
+    ', start ' + mm1(handStim.start_ms) + ' ms, ' + mm1(handStim.duration_ms) + ' ms, ' +
+    mm1(handStim.palm_speed_mm_s) + ' mm/s [hand.json]'
+  : null;
+
 const t0All = trace.rows[0].t;
 const t1All = trace.rows[trace.rows.length - 1].t;
 const tStart = simStartArg !== null ? simStartArg : t0All;
@@ -93,10 +172,6 @@ const roomText = arena
   ? (arena.x[1] - arena.x[0]) + 'x' + (arena.y[1] - arena.y[0]) + 'x' + (arena.z[1] - arena.z[0]) +
     ' mm  (scale ' + roomScale + ', height ' + (roomHeight === null ? 'scaled' : roomHeight + ' mm') + ')'
   : 'not recorded in summary.json config';
-// No run on disk records a target/fruit place in its summary.json (the `fruit`
-// block appears only in a later schema), so the panel says so instead of drawing
-// a distance-to-target trace against a guessed target.
-const targetText = 'not recorded (summary has no fruit/target place)';
 const configKeys = Object.keys(cfg).sort().join(', ');
 const flagsText = 'flags: summary.json records only [' + configKeys +
   ']; env flags (e.g. FLYVERSE_NO_FRUIT, FLYVERSE_ROOM_SCALE) are NOT stored, so the ' +
@@ -124,6 +199,14 @@ const meta = {
   simSpan,
   roomScale,
   roomHeight,
+  // What the replay actually placed in the room, from the run's own records.
+  // Null means the run recorded neither the object nor its place, and the
+  // renderer drew nothing there.
+  palmText,
+  fruitLive: trace.head.indexOf('fruit_dist') >= 0 && trace.head.indexOf('fruit_cols') >= 0,
+  handLive: !!handTrace,
+  fruitSpec,
+  handSpec,
 };
 
 // ---------------------------------------------------------------- interpolation
@@ -178,6 +261,35 @@ if (ser.t[ser.t.length - 1] !== last.t) {
   ser.steerDiff.push(last.steer_l - last.steer_r); ser.x.push(last.x); ser.y.push(last.y);
 }
 ser.arena = arena ? { x: arena.x, y: arena.y } : { x: [-300, 300], y: [-220, 220] };
+
+// The palm's centre at time `t`, mm, world frame: hand.csv's hx,hy,hz, which is
+// where the run's own optics ray-cast against it. Its own cursor, like the
+// trace's. If a run records the hand but not the per-sample file (hand.json
+// only), the recorded trajectory is walked instead: origin before the launch,
+// straight to contact over duration_ms, contact after it, and parked at the
+// origin for the static control -- the same rule as `HandTraj::hand_at`.
+let hcur = 0;
+function handFrame(t) {
+  if (handTrace && handTrace.rows.length) {
+    const rows = handTrace.rows;
+    while (hcur > 0 && rows[hcur].t > t) hcur--;
+    while (hcur < rows.length - 1 && rows[hcur + 1].t <= t) hcur++;
+    const a = rows[hcur];
+    const b = rows[Math.min(hcur + 1, rows.length - 1)];
+    const span = b.t - a.t;
+    const f = span > 1e-9 ? Math.min(1, Math.max(0, (t - a.t) / span)) : 0;
+    const mix = (k) => (a[k] === undefined || b[k] === undefined ? 0 : a[k] + (b[k] - a[k]) * f);
+    return { c: [mix('hx'), mix('hy'), mix('hz')], mix };
+  }
+  if (!handStim) return null;
+  const o = handStim.origin_mm.map((x) => Number(x));
+  const c = handStim.contact_mm.map((x) => Number(x));
+  if (handStim.mode !== 'approaching') return { c: o, mix: null };
+  const start = Number(handStim.start_ms) / 1000;
+  const dur = Math.max(1e-6, Number(handStim.duration_ms) / 1000);
+  const u = Math.min(1, Math.max(0, (t - start) / dur));
+  return { c: [0, 1, 2].map((i) => o[i] + (c[i] - o[i]) * u), mix: null };
+}
 
 // ---------------------------------------------------------------- frame payload
 function frameOf(t, idx) {
@@ -240,7 +352,24 @@ function frameOf(t, idx) {
     flowL: motor('flow_l') || 0, flowR: motor('flow_r') || 0,
     winSpikes: bump('win_spikes'), totSpikes: bump('tot_spikes'),
   };
-  return { payload, overlay };
+  // The fruit's and the palm's own live read-outs, added to the panel only for
+  // runs that recorded them (meta.fruitLive / meta.handLive, above).
+  if (meta.fruitLive) {
+    overlay.fruitDist = s.mix('fruit_dist');
+    overlay.fruitCols = Math.round(s.mix('fruit_cols'));
+  }
+  let stim = null;
+  if (handTrace || handStim) {
+    const hf = handFrame(t);
+    if (hf) {
+      if (hf.mix) {
+        overlay.palmDist = hf.mix('hand_dist');
+        overlay.palmSurf = hf.mix('hand_surf');
+      }
+      stim = { hand_c: hf.c };
+    }
+  }
+  return { payload, overlay, stim };
 }
 
 // ---------------------------------------------------------------- drive the page
@@ -272,6 +401,15 @@ if (!ready) {
 await cdp.eval('window.__flyverse.replay.start()');
 const roomApplied = await cdp.eval(`window.__flyverse.replay.setRoom(${roomScale}, ${roomHeight === null ? 'null' : roomHeight})`);
 const camMode = await cdp.eval(`window.__flyverse.replay.setCam(${VIEWS[view]})`);
+// The run's own fruit and palm, or nothing at all when it recorded neither. The
+// objects the page draws are the run's recorded geometry: `fruit.radius_mm` and
+// `hand.palm_half_mm` come from the files, not from the renderer.
+const stimApplied = await cdp.eval('window.__flyverse.replay.setStimulus(' +
+  JSON.stringify({ fruit: fruitSpec, hand: handSpec }) + ')');
+if (fruitSpec || handSpec) {
+  process.stderr.write('[driver] stimulus placed: fruit=' + JSON.stringify(!!stimApplied.fruit) +
+    ' hand=' + JSON.stringify(!!stimApplied.hand) + '\n');
+}
 
 await cdp.eval(OVERLAY_JS);
 await cdp.eval('window.__fvev.series(' + JSON.stringify(ser) + ')');
@@ -282,7 +420,7 @@ await cdp.eval('window.__fvev.meta(' + JSON.stringify(meta) + ')');
 const warm = frameOf(tStart, 0);
 for (let i = 0; i < 60; i++) {
   await cdp.eval('window.__flyverse.replay.step(' + tStart + ',' + (1 / 60) +
-    ',' + JSON.stringify(warm.payload) + ')');
+    ',' + JSON.stringify(warm.payload) + ',' + JSON.stringify(warm.stim || null) + ')');
 }
 
 process.stderr.write(`[driver] ${nFrames} frames, ${step.toFixed(5)} s sim/frame, view=${view} (cam ${camMode}), room=${JSON.stringify(roomApplied)}\n`);
@@ -290,8 +428,9 @@ process.stderr.write(`[driver] ${nFrames} frames, ${step.toFixed(5)} s sim/frame
 const pad = (n) => String(n).padStart(6, '0');
 for (let k = 0; k < nFrames; k++) {
   const tk = k === nFrames - 1 ? tEnd : tStart + step * (k + 1);
-  const { payload, overlay } = frameOf(tk, k);
-  await cdp.eval('window.__flyverse.replay.step(' + tk + ',' + step + ',' + JSON.stringify(payload) + ')');
+  const { payload, overlay, stim } = frameOf(tk, k);
+  await cdp.eval('window.__flyverse.replay.step(' + tk + ',' + step + ',' + JSON.stringify(payload) +
+    ',' + JSON.stringify(stim || null) + ')');
   await cdp.eval('window.__fvev.set(' + JSON.stringify(overlay) + ')');
   const shot = await cdp.send('Page.captureScreenshot', { format: 'png', fromSurface: true });
   writeFileSync(join(frameDir, pad(k) + '.png'), Buffer.from(shot.data, 'base64'));
@@ -311,6 +450,7 @@ const out = {
   simPanelsStart: tStart, simSpan,
   camMode,
   roomApplied,
+  stimApplied,
   pageErrors: JSON.parse(pageErrors),
 };
 writeFileSync(metaPath, JSON.stringify(out, null, 2));

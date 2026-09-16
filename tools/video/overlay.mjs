@@ -36,6 +36,8 @@ export const OVERLAY_JS = String.raw`(function () {
       (colour || '#6c8090') + ';font-weight:600;border-bottom:1px solid #1e2a35;padding-bottom:3px';
     return h;
   }
+  function hideRow(el) { if (el) el.style.display = 'none'; }
+  function showRow(el) { if (el) el.style.display = 'flex'; }
   function rows(parent, defs) {
     var out = {};
     defs.forEach(function (d) {
@@ -62,10 +64,15 @@ export const OVERLAY_JS = String.raw`(function () {
     ['sim seconds',      '-', null, 'seconds'],
     ['room',             '-', null, 'room'],
     ['target / food place', '-', null, 'target'],
+    ['palm',             '-', null, 'palm'],
     ['pack',             '-', null, 'pack'],
     ['sample every',     '-', null, 'every'],
     ['pack/room source', 'summary.json config', '#8a7550', 'src'],
   ]);
+  // The palm row exists only for a run that recorded a hand (hand.json /
+  // summary.hand). It is hidden otherwise, so a run with no hand is laid out
+  // exactly as before this row was added.
+  hideRow(id.palm.parentNode);
 
   var scaleLine = document.createElement('div');
   scaleLine.style.cssText = 'margin:5px 0 4px;color:#ffcf4a;font-weight:600';
@@ -94,7 +101,14 @@ export const OVERLAY_JS = String.raw`(function () {
     ['odor L / R [odor_l,r]',  '-', null, 'odor'],
     ['flow L / R [flow_l,r]',  '-', null, 'flow'],
     ['spikes win / total',     '-', null, 'spikes'],
+    ['fruit dist / cols [fruit_dist,fruit_cols]', '-', null, 'fruit'],
+    ['palm dist / surf [hand.csv]', '-', null, 'palm'],
   ]);
+  // Both rows are hidden unless the run recorded the thing they report: the
+  // fruit columns are in trace.csv, the palm's distance is in hand.csv (the
+  // hand's own file -- the trace has no hand columns).
+  hideRow(live.fruit.parentNode);
+  hideRow(live.palm.parentNode);
 
   // ---- sparkline: recorded speed and steering differential vs sim time ----
   root.appendChild(head('TRACE OVER SIM TIME'));
@@ -131,6 +145,12 @@ export const OVERLAY_JS = String.raw`(function () {
     id.seconds.textContent = m.seconds + ' s';
     id.room.textContent = m.room;
     id.target.textContent = m.target;
+    if (m.palmText) {
+      id.palm.textContent = m.palmText;
+      showRow(id.palm.parentNode);
+    }
+    if (m.fruitLive) showRow(live.fruit.parentNode);
+    if (m.handLive) showRow(live.palm.parentNode);
     id.pack.textContent = m.pack;
     id.every.textContent = m.every;
     scaleLine.textContent = 'TIME SCALE: 1 s sim = ' + m.timeScale.toFixed(2) + ' s video   (' +
@@ -160,6 +180,14 @@ export const OVERLAY_JS = String.raw`(function () {
     live.odor.textContent = s.odorL.toFixed(3) + ' / ' + s.odorR.toFixed(3);
     live.flow.textContent = s.flowL.toFixed(3) + ' / ' + s.flowR.toFixed(3);
     live.spikes.textContent = s.winSpikes + ' / ' + s.totSpikes;
+    // Fruit and palm rows: written only when this frame carries the value, and
+    // the rows are only shown for runs whose files hold them (see F.meta).
+    if (typeof s.fruitDist === 'number') {
+      live.fruit.textContent = s.fruitDist.toFixed(1) + ' mm / ' + s.fruitCols;
+    }
+    if (typeof s.palmDist === 'number') {
+      live.palm.textContent = s.palmDist.toFixed(1) + ' / ' + s.palmSurf.toFixed(1) + ' mm';
+    }
     F._curX = s.x; F._curY = s.y;
     draw(s.t);
   };

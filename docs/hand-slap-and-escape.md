@@ -607,8 +607,11 @@ New: `src/analyze/hand.rs` (telemetry + the response measurements). Changed: `sr
 variant, the skin reflectance, the ray-vs-oriented-box intersection, the per-eye palm
 coverage and nearest-distance accessors), `src/sim.rs` (the per-window placement and the
 aim re-take, plus the loom-pair accessor the earlier probe work added),
-`src/analyze/{run,summary}.rs` and `src/analyze.rs` (wiring). Nothing in `wasm/` and
-nothing in `web/`.
+`src/analyze/{run,summary}.rs` and `src/analyze.rs` (wiring). Nothing in `wasm/`,
+and nothing in `web/` as the live page goes: the only later addition there is the
+offline-replay stimulus objects the render pipeline drives from a run's own
+records (`docs/videos/README.md` §3), which are hidden unless a replay asks for
+them.
 
 The fast-slap arm (section 6) adds no code at all: it is `FLYVERSE_HAND_DUR_MS=50` on the
 same binary, and the 4x arena is `FLYVERSE_ROOM_SCALE=4`. No new knob, no new term, and no
