@@ -91,6 +91,12 @@ predates the render, so these are the exact bytes that were encoded):
 | `/tmp/fv/part1/s4_s23` | `3350c76e47b9093eab7218772abb1cfd` |
 | `/tmp/attr/baseline` | `64d4b445381450b2147ab794cc9060d1` |
 | `/tmp/attr/no-retina` | `b15fe24571bdde77d74df83b5de7ddf2` |
+| `/tmp/fv/after_s7` | `9aab37c6924a8f676ac765b2db7c6b13` |
+| `/tmp/fv/grain_s7` | `289f01b8b36c2778c33d8d914929ab23` |
+| `/tmp/fv/hand1x/s7_approach` | `add378ee374bcc2f641d4221bef24ced` |
+| `/tmp/fv/hand1x/s7_static` | `605bfb52a24cf6bbc300de57c59f6dcb` |
+| `/tmp/fv/fast1x/s11_approach` | `180c0edf7081871103ee8a47257c40eb` |
+| `/tmp/fv/fast1x/s11_static` | `5b70cf108b7b013bad7c3dd215a812ab` |
 
 (Re-run `md5sum DIR/trace.csv` before re-rendering to confirm you are building
 from the same data; the driver maps columns **by header name**, not by
@@ -183,10 +189,53 @@ All 12 s runs are rendered at `--time-scale 1.0`, i.e. **1 s sim = 1 s video**,
 | `room-4x-seed23-degenerate.mp4` | `/tmp/fv/part1/s4_s23` | chase | the documented degenerate cell: at 4x seed 23 never took off (100 % GROUND, 0 % cruise) |
 | `ablation-baseline-seed7.mp4` | `/tmp/attr/baseline` | chase | **control** of the ablation pair, seed 7, `--every 10` |
 | `ablation-no-retina-seed7.mp4` | `/tmp/attr/no-retina` | chase | **ablation**: `FLYVERSE_NO_RETINA=1`, seed 7, `--every 10` |
+| `fruit-in-room-seed7.mp4` | `/tmp/fv/after_s7` | chase | colour-vision-and-fruit test: the default build with the colour tomato fruit in the room, seed 7, 12 s, `--every 1` |
+| `fruit-no-fruit-control-seed7.mp4` | `/tmp/fv/grain_s7` | chase | its control: `FLYVERSE_NO_FRUIT=1`, same room/table/sugar cube/odour |
+| `hand-slap-seed7.mp4` | `/tmp/fv/hand1x/s7_approach` | chase | hand-slap test, 150 ms arm: `FLYVERSE_HAND=approach`, seed 7 at spawn — the full-contact slap |
+| `hand-slap-static-control-seed7.mp4` | `/tmp/fv/hand1x/s7_static` | chase | its control: `FLYVERSE_HAND=static`, the same palm parked at the launch origin |
+| `hand-slap-fast-seed11.mp4` | `/tmp/fv/fast1x/s11_approach` | chase | hand-slap test, fast arm: `FLYVERSE_HAND=approach FLYVERSE_HAND_DUR_MS=50`, seed 11 — the run that holds both |
+| `hand-slap-fast-static-control-seed11.mp4` | `/tmp/fv/fast1x/s11_static` | chase | its control: `FLYVERSE_HAND=static FLYVERSE_HAND_DUR_MS=50` |
 
-Every room size the sweep covered that is present on disk is included; the six
-sizes above are exactly the sweep's rows in
-`docs/room-size-and-loom-pathway.md`.
+The first thirteen rows are the original standing set (the default flight, the
+room-size sweep, the contrasting seeds and the ablation pair). Of the sweep,
+every room size it covered that is present on disk is included, and those six
+sizes are exactly its rows in `docs/room-size-and-loom-pathway.md`.
+
+### The last six rows: the two later experiments, on the same command
+
+The room-size sweep and the ablation pair were the video pipeline's first two
+subjects. The six rows after them are the runs of the two experiments that
+followed — the fruit (`docs/colour-vision-and-fruit.md`) and the hand
+(`docs/hand-slap-and-escape.md`) — rendered by the same `fly2video.sh`, at the
+same 24 fps / 1600x900 / 1 s sim = 1 s video, and each with its control.
+
+- **The fruit pair** is the default build with the colour tomato fruit in the
+  room against `FLYVERSE_NO_FRUIT=1`. The document's result is exact rather than
+  approximate: every body and motor column of `trace.csv` is bit-identical
+  between the two runs (checked here directly, all 6000 rows, over
+  `x y z speed yaw yaw_rate roll pitch wing_amp mode pow_l pow_r steer_l steer_r
+  walk_l walk_r land_l land_r wall_hits takeoffs landings`), while `fruit_cols`
+  and the retinal columns differ. So the two videos are *the same flight*: the
+  fly's rendered path and the scene are identical frame for frame, and the only
+  pixels that differ are the panel's live read-outs — the spike count and the
+  retinal catches, which is what makes the null non-vacuous instead of a
+  recording of nothing. That is also why the two files are 4560291 and 4559718
+  bytes and not the same file.
+- **The hand four** are the 150 ms arm's full-contact seed 7 (the delivery
+  claim: the palm reaches the retina and covers about half of each eye) and the
+  fast arm's seed 11 (`FLYVERSE_HAND_DUR_MS=50`, section 6.1 of the document,
+  the one run that holds both "the palm reaches the retina" and "the loom
+  channel has headroom"), each against its own `FLYVERSE_HAND=static` control.
+  The approach and its control are two renders of runs that are bit-identical
+  until the launch at t = 2.000 s and then part company; the divergence is in
+  the videos, and the documents' trace tables are the measurement of it.
+
+Two things are *not* in the picture, and both are the renderer's limit rather
+than the experiment's: the visualiser has no fruit object and no hand object
+(`web/` knows only the room, the table and the sugar cube — `src/room.rs`'s
+`Fruit` and `Hand` have no counterpart there), so the fruit and the palm appear
+in no frame. The runs' own records carry both: `summary.json` → `fruit.*` and
+`hand.*`, and per run `hand.csv` / `hand.json`. See §6.
 
 Runs on disk that were deliberately **not** rendered: the sweep's other seed
 rows for the non-1x sizes — `/tmp/fv/part1/{s2_s11,s2_s23,s4_s11,s4_h220_s11,s4_h220_s23,s8_s11,s8_s23,s1_h1200_s11,s1_h1200_s23}`
@@ -197,6 +246,24 @@ seeds and the one degenerate 4x/23 cell are included here. Also not rendered:
 `runs/seed7`, a 60 s run, which at 1:1 would be a 60 s video — outside the
 watchable range the brief asked for, and it duplicates the default flight
 already covered at 12 s.
+
+**Of the fruit and hand runs, only the six above are rendered.** Every other run
+of those two experiments is on disk with a complete `trace.csv` + `summary.json`
+and is renderable by the same one-row recipe: the hand's other seeds and
+arenas (`/tmp/fv/hand1x/{s11,s23}_{approach,static}`,
+`/tmp/fv/hand4x/{s7,s11,s23}_{approach,static,none}`,
+`/tmp/fv/fast1x/{s7,s23}_{approach,static}`,
+`/tmp/fv/fast4x/{s7,s11,s23}_{approach,static}`, `/tmp/fv/nohand2/{s7,s11,s23}`)
+and the fruit's other seeds and renders (`/tmp/fv/after_s11`, `/tmp/fv/after_s23`,
+`/tmp/fv/grey_s7`, `/tmp/fv/grain_s11`, `/tmp/fv/grain_s23`, `/tmp/fv/grey_s11`,
+`/tmp/fv/grey_s23`). Two arms are a deliberate judgement call rather than a
+list: the **4x arm** (`hand4x`, and the earlier `/tmp/fv/base/…` runs) is the
+configuration the fast arm exists to *replace* — the document's section 6.3
+shows its palm is never delivered to a flying seed — so its videos would show a
+slap that misses, at 4x room scale where only the chase camera is correct; and
+the **no-hand runs** (`nohand2`) are the byte-identity controls for the hand
+build, already reported as a table in the document, whose videos would duplicate
+`fruit-in-room-seed7`'s room and camera with no fruit and no hand in it.
 
 ### Exact command for each video
 
@@ -217,12 +284,20 @@ tools/video/fly2video.sh --run /tmp/fv/part1/base_s23   --name room-1x-seed23   
 tools/video/fly2video.sh --run /tmp/fv/part1/s4_s23     --name room-4x-seed23-degenerate            --view chase --label "room-size sweep: 4x, seed 23 -- DEGENERATE ROW: never took off (100% GROUND, 0% cruise), see docs/room-size-and-loom-pathway.md"
 tools/video/fly2video.sh --run /tmp/attr/baseline       --name ablation-baseline-seed7              --view chase --label "CONTROL of the ablation pair (run dir name: baseline): seed 7, 12 s, --every 10"
 tools/video/fly2video.sh --run /tmp/attr/no-retina      --name ablation-no-retina-seed7             --view chase --label "ABLATION (run dir name: no-retina = FLYVERSE_NO_RETINA=1): seed 7, 12 s, --every 10"
+tools/video/fly2video.sh --run /tmp/fv/after_s7         --name fruit-in-room-seed7                  --view chase --label "colour-vision-and-fruit test: default build with the colour tomato fruit in the room (src/room.rs FRUIT, no env flag), seed 7, 12 s, --every 1"
+tools/video/fly2video.sh --run /tmp/fv/grain_s7         --name fruit-no-fruit-control-seed7         --view chase --label "colour-vision-and-fruit test, CONTROL (run dir name: grain = FLYVERSE_NO_FRUIT=1): same room/table/sugar cube/odour, fruit removed, seed 7, 12 s, --every 1"
+tools/video/fly2video.sh --run /tmp/fv/hand1x/s7_approach    --name hand-slap-seed7                  --view chase --label "hand-slap test: FLYVERSE_HAND=approach (150 ms slap, default knobs), seed 7 at spawn: the full-contact slap, see docs/hand-slap-and-escape.md"
+tools/video/fly2video.sh --run /tmp/fv/hand1x/s7_static      --name hand-slap-static-control-seed7   --view chase --label "hand-slap test, CONTROL: FLYVERSE_HAND=static -- the same palm parked at the launch origin (bit-identical to the approach run until t = 2.000 s), seed 7"
+tools/video/fly2video.sh --run /tmp/fv/fast1x/s11_approach   --name hand-slap-fast-seed11            --view chase --label "hand-slap test, FAST arm: FLYVERSE_HAND=approach FLYVERSE_HAND_DUR_MS=50 (the terminal phase at ~6 m/s), seed 11 -- the run that holds both, see docs/hand-slap-and-escape.md section 6.1"
+tools/video/fly2video.sh --run /tmp/fv/fast1x/s11_static     --name hand-slap-fast-static-control-seed11 --view chase --label "hand-slap test, FAST arm CONTROL: FLYVERSE_HAND=static FLYVERSE_HAND_DUR_MS=50, seed 11"
 ```
 
 Every row above was verified after rendering: for each MP4 the driver's meta
-file records the `--run` directory it actually replayed, and for all 13 that
+file records the `--run` directory it actually replayed, and for all 19 that
 directory is the one named in §3 (a mis-parsed batch row would show up here as a
-run directory that does not match its video).
+run directory that does not match its video). All 19 were rendered at
+`--fps 24 --width 1600 --height 900 --time-scale 1.0`, i.e. 288 frames,
+`1600x900`, 12.000 s each.
 
 ---
 
@@ -237,7 +312,7 @@ and no derived metric that summary.json does not already define.
 | `run dir` | the `--run` argument |
 | `seed`, `sim seconds`, `pack`, `sample every` | `summary.json` → `config.seed`, `config.seconds`, `config.pack`, `config.sample_every_windows` (x `config.window_ms`) |
 | `room` | `summary.json` → `config.arena_mm` (x/y/z extents), `config.room_scale`, `config.room_height_mm` |
-| `target / food place` | reports *not recorded* — see §6 |
+| `target / food place` | **a fixed string, not a field.** The driver writes `not recorded (summary has no fruit/target place)` unconditionally (`tools/video/driver.mjs:99`), from the pipeline revision that predates the `fruit` block. Two of the runs in §3 do record it, so on those two videos the row understates what the run recorded — see §6 |
 | `TIME SCALE` | `nFrames`, `fps` and `simSpan` as computed by the driver; also states `1 s sim = R s video` |
 | `sim t` | `trace.t` |
 | `mode`, `airborne` | `trace.mode` (0 GROUND, 1 TAKEOFF, 2 CRUISE, 3 LANDING, 4 FEEDING); airborne is `mode` in {TAKEOFF, CRUISE, LANDING}, the same predicate as `src/sim.rs:1031` |
@@ -307,11 +382,22 @@ files) are:
 | `room-4x-seed23-degenerate` | 12.000 | 1600x900 | 3475248 | https://share.skg.gg/u/97tKMM.mp4 |
 | `room-4x-seed7` | 12.000 | 1600x900 | 3772673 | https://share.skg.gg/u/kcdrIv.mp4 |
 | `room-8x-seed7` | 12.000 | 1600x900 | 3314521 | https://share.skg.gg/u/mFYboi.mp4 |
+| `fruit-in-room-seed7` | 12.000 | 1600x900 | 4560291 | https://share.skg.gg/u/VHrl67.mp4 |
+| `fruit-no-fruit-control-seed7` | 12.000 | 1600x900 | 4559718 | https://share.skg.gg/u/K0ZmH4.mp4 |
+| `hand-slap-seed7` | 12.000 | 1600x900 | 5692623 | https://share.skg.gg/u/wWfDnn.mp4 |
+| `hand-slap-static-control-seed7` | 12.000 | 1600x900 | 4027910 | https://share.skg.gg/u/D5TcUi.mp4 |
+| `hand-slap-fast-seed11` | 12.000 | 1600x900 | 5675401 | https://share.skg.gg/u/hKE4Mf.mp4 |
+| `hand-slap-fast-static-control-seed11` | 12.000 | 1600x900 | 5590771 | https://share.skg.gg/u/3JSrPG.mp4 |
 
-Uploading all 13 in one pass trips Zipline's rate limit after ~10 files
-(`429 Rate limit exceeded, retry in ~55 seconds`, and one transient Cloudflare
-`502`); the three that failed were uploaded after waiting out the window, which
-is why the table above is complete.
+Uploading all 13 of the original set in one pass trips Zipline's rate limit after
+~10 files (`429 Rate limit exceeded, retry in ~55 seconds`, and one transient
+Cloudflare `502`); the three that failed were uploaded after waiting out the
+window, which is why the table above is complete. The six added later were
+uploaded **one at a time** with `upload-zipline.sh --only NAME` (six uploads, 4 s
+apart, no `429`): with `--only` set the script appends its row to the existing
+`LINKS.md` instead of starting a fresh table, so a later addition never rewrites
+the earlier rows. Each of the six was re-downloaded from its share URL and
+`md5sum`-compared to the local file — all six returned `200` and matched.
 
 ---
 
@@ -323,14 +409,37 @@ is why the table above is complete.
   a recorded run. It is hidden rather than drawn empty
   (`web/app.js`, `replayStart`). The connectome spike *totals* that are
   recorded do appear, in the left column and in the panel.
-- **There is no distance-to-target trace, because no run records a target.**
-  None of the runs on disk has a `fruit` block in `summary.json` (that block
-  appears in a later schema), so no run records where the fruit/food place was
-  and no run records a distance to it. The panel says `not recorded` instead of
-  drawing a distance curve against a guessed target. The food cube in the scene
-  is drawn at the visualiser's own default position
+- **The `target / food place` row is a fixed string, and the fruit is not
+  drawn.** The driver writes that row unconditionally
+  (`tools/video/driver.mjs:99`) from the pipeline revision that predates the
+  `fruit` block, and the visualiser has no fruit object at all — `web/app.js`
+  draws the room, the table and the sugar cube and knows nothing about
+  `room::Fruit` or `room::Hand`. Two of the runs in §3 *do* record the fruit and
+  its distance: `summary.json` → `fruit.centre_mm` (`[240, -130, 65]` mm),
+  `fruit.radius_mm` (25), `fruit.distance_mm` (first/last/mean/min),
+  `fruit.optics` (columns on the fruit, % of samples seeing it), and `trace.csv`
+  → `fruit_dist`, `fruit_az`, `fruit_cols`. None of it is read by the renderer,
+  so on `fruit-in-room-seed7`/`fruit-no-fruit-control-seed7` the panel says
+  `not recorded` where the run recorded it, and the fruit appears in no frame.
+  The driver and overlay were left unmodified on purpose: their output is part
+  of the frames the 13 earlier videos were made from, and the byte-identical
+  re-render in §1 is a property of that exact code. Point the reader at
+  `summary.json` (and at `docs/colour-vision-and-fruit.md`) for those numbers.
+  The food cube in the scene is drawn at the visualiser's own default position
   (`web/app.js:326`, `sugar.position.set(160, 40, 44)`) — it is **not** the
   run's food place, and it is not moved during replay.
+- **The palm is not drawn either.** The hand lives only in the sim
+  (`src/room.rs`, `src/vision.rs`); `docs/hand-slap-and-escape.md` section 9
+  says it changed "nothing in `web/`", and the four hand videos show it: the fly
+  flies its 12 s with no palm in the scene. What the video has is the body and
+  the recorded read-outs, including the retinal columns (`lum_l`, `lum_r`,
+  `gr_l`, `gr_r`) the palm moves — but those are single numbers per sample, not
+  per-column coverage. The palm's geometry, its trajectory and aim point, the
+  per-eye columns it covers and the delivered loom per eye are recorded per run
+  in `hand.json` and `hand.csv`, and summarised in `summary.json`'s `hand`
+  block; the video is not where that delivery claim is checked. That the
+  stimulus is missing from the picture is a limit of the renderer, not a
+  statement about the experiment.
 - **Environment flags are not on screen as recorded facts.** `summary.json`'s
   `config` records only `pack`, `seed`, `seconds`, `sample_every_windows`,
   `window_ms`, `dt_ms`, `samples`, `arena_mm`, `room_scale` and

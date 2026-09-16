@@ -49,6 +49,12 @@ room-1x-seed23|/tmp/fv/part1/base_s23|chase|room-size sweep: 1x, CONTRASTING SEE
 room-4x-seed23-degenerate|/tmp/fv/part1/s4_s23|chase|room-size sweep: 4x, seed 23 -- DEGENERATE ROW: never took off (100% GROUND, 0% cruise), see docs/room-size-and-loom-pathway.md
 ablation-baseline-seed7|/tmp/attr/baseline|chase|CONTROL of the ablation pair (run dir name: baseline): seed 7, 12 s, --every 10
 ablation-no-retina-seed7|/tmp/attr/no-retina|chase|ABLATION (run dir name: no-retina = FLYVERSE_NO_RETINA=1): seed 7, 12 s, --every 10
+fruit-in-room-seed7|/tmp/fv/after_s7|chase|colour-vision-and-fruit test: default build with the colour tomato fruit in the room (src/room.rs FRUIT, no env flag), seed 7, 12 s, --every 1
+fruit-no-fruit-control-seed7|/tmp/fv/grain_s7|chase|colour-vision-and-fruit test, CONTROL (run dir name: grain = FLYVERSE_NO_FRUIT=1): same room/table/sugar cube/odour, fruit removed, seed 7, 12 s, --every 1
+hand-slap-seed7|/tmp/fv/hand1x/s7_approach|chase|hand-slap test: FLYVERSE_HAND=approach (150 ms slap, default knobs), seed 7 at spawn: the full-contact slap, see docs/hand-slap-and-escape.md
+hand-slap-static-control-seed7|/tmp/fv/hand1x/s7_static|chase|hand-slap test, CONTROL: FLYVERSE_HAND=static -- the same palm parked at the launch origin (bit-identical to the approach run until t = 2.000 s), seed 7
+hand-slap-fast-seed11|/tmp/fv/fast1x/s11_approach|chase|hand-slap test, FAST arm: FLYVERSE_HAND=approach FLYVERSE_HAND_DUR_MS=50 (the terminal phase at ~6 m/s), seed 11 -- the run that holds both, see docs/hand-slap-and-escape.md section 6.1
+hand-slap-fast-static-control-seed11|/tmp/fv/fast1x/s11_static|chase|hand-slap test, FAST arm CONTROL: FLYVERSE_HAND=static FLYVERSE_HAND_DUR_MS=50, seed 11
 EOF
 )
 
