@@ -424,6 +424,7 @@ fn main() -> Result<()> {
                 response_ms: args.f64("response", 200.0),
                 levels,
                 retinal: args.has("retinal"),
+                odour: args.has("odour"),
             };
             analyze::loom_probe(&pack_path, &o, &p)
         }

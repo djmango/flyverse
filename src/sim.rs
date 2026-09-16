@@ -161,6 +161,26 @@ pub fn vnc_targets_path() -> PathBuf {
         .unwrap_or_else(|_| PathBuf::from(VNC_TARGETS))
 }
 
+/// Which looming signal the closed loop delivers to the two `visual_loom`
+/// pools: each eye's own retinotopic depth (**the default**) or the shipped
+/// shared body-heading scalar (`FLYVERSE_LOOM_SCALAR=1`).
+///
+/// The default is the per-eye signal because the shared scalar is the *less*
+/// faithful of the two, by measurement: one ray along the body heading gives
+/// both eyes an identical number in every window, so its left/right
+/// differential is exactly 0.0000 and the channel carries no lateral
+/// information at all, while the per-eye signal differs between the eyes in
+/// 35-52 % of samples across seeds 7/11/23 (`docs/per-eye-retinotopic-loom.md`,
+/// `loom-diag`). Making the shortcut the default was a compatibility default,
+/// not a physiological one, and it is reversed here.
+///
+/// Nothing was added to the signal: the columns, their gaze directions and the
+/// raycast are the ones that already drive the photoreceptors, and the TTC
+/// mapping is the one the scalar path already used.
+pub fn loom_retinotopic_default() -> bool {
+    std::env::var("FLYVERSE_LOOM_SCALAR").is_err()
+}
+
 /// Motor read-outs are smoothed: the connectome's read-out is instantaneous
 /// while real muscle activation is not, and a small pool firing at a few
 /// hundred Hz is spiky window to window. This is the transduction lag between
@@ -278,18 +298,32 @@ pub struct World {
     /// steering pathway works. This knob lets a probe impose the stimulus
     /// instead of letting the fly produce it.
     pub loom_imposed: Option<(f32, f32)>,
+    /// The odour concentration at each antenna, when a probe has taken the
+    /// channel over (`set_imposed_odor`). `None` -- the default, and the only
+    /// state the closed loop ever runs in -- means the room's own odour field
+    /// is sampled at the two antennae as usual.
+    pub odor_imposed: Option<(f32, f32)>,
     /// Whether the two `visual_loom` drives are fed each eye's OWN retinotopic
-    /// depth signal rather than the shared body-heading scalar. `FLYVERSE_LOOM_
-    /// RETINOTOPIC=1`. Off by default, so the shipped closed loop is unchanged.
+    /// depth signal rather than the shared body-heading scalar.
+    /// **This is the DEFAULT** (`FLYVERSE_LOOM_SCALAR=1` asks for the scalar
+    /// instead).
     ///
     /// The scalar `loom()` casts one ray along the body's forward axis, so it
     /// is a single number, and `sense` delivered it to both `visual_loom`
     /// pools: both eyes received an identical stimulus at every instant and the
-    /// loop contained no lateral visual information at all. That is not a
-    /// physiological model of binocular looming, it is a simplification of the
-    /// stimulus that destroys its laterality. The retina already samples each
-    /// eye's own columns; with this on, each eye's loom drive is the
-    /// time-to-collision to the nearest surface in THAT eye's field.
+    /// loop contained no lateral visual information at all -- the measured
+    /// left/right differential is EXACTLY zero in 0.0 % of samples. That is not
+    /// a physiological model of binocular looming, it is a simplification of the
+    /// stimulus that destroys the one quantity the pathway exists to compute.
+    /// The retina already samples each eye's own columns; with the retinotopic
+    /// path on, each eye's loom drive is the time-to-collision to the nearest
+    /// surface in THAT eye's field, which gives the two eyes different values in
+    /// 35-52 % of samples.
+    ///
+    /// The roles were the other way round until this change: the faithful path
+    /// sat behind an opt-in flag and the shortcut was the default. That is
+    /// backwards -- the default should be the one that reports what the sense
+    /// organ sees -- so the flag now names the shortcut.
     pub loom_retinotopic: bool,
     /// Per-cell input gain actually applied to the flight power motor neurons
     /// (`MN_POWER_INPUT_GAIN`, or `$FLYVERSE_MN_GAIN`).
@@ -440,6 +474,41 @@ impl World {
             vision::BASE_HZ as u32,
             (vision::BASE_HZ + vision::GAIN_HZ) as u32,
         );
+        // The spectral classes actually driven, so a retina that silently
+        // collapsed back to one luminance channel would be visible in the log
+        // rather than only in the data.
+        {
+            let cc = &retina.class_cells;
+            let named = ["R1-R6/Rh1", "R7p/Rh3", "R7y/Rh4", "R8p/Rh5", "R8y/Rh6", "R7u", "R8u"];
+            let parts: Vec<String> = (0..vision::NCLASS)
+                .map(|i| format!("{} {}", named[i], cc[i]))
+                .collect();
+            let chroma: usize = (1..vision::NCLASS).map(|i| cc[i]).sum();
+            eprintln!(
+                "[flyverse] spectral classes: {} cells ({} chromatic, {:.0} %), \
+                 lambda_max 478/345/375/437/508 nm, {} bands {}..{:.0} nm",
+                retina.photons,
+                chroma,
+                100.0 * chroma as f64 / retina.photons.max(1) as f64,
+                vision::NBANDS,
+                300,
+                300.0 + (vision::NBANDS - 1) as f32 * 10.0,
+            );
+            eprintln!("[flyverse]   {}", parts.join(", "));
+        }
+        match room.fruit {
+            Some(f) => eprintln!(
+                "[flyverse] fruit: sphere r {:.0} mm at ({:.0},{:.0},{:.0}), reflectance {} \
+                 (40-band measured ripe-tomato spectrum{}) -- scene object only: no collision, \
+                 no taste, no reward, no injected signal",
+                f.r, f.c[0], f.c[1], f.c[2],
+                if room.fruit_grey { "equi-luminant GREY (FLYVERSE_FRUIT_GREY)" } else { "colour" },
+                if room.fruit_grey { format!(", flat at {:.3}", retina.fruit_grey_level()) } else { String::new() },
+            ),
+            None => eprintln!(
+                "[flyverse] fruit: ABSENT (FLYVERSE_NO_FRUIT) -- clear-room control"
+            ),
+        }
 
         Ok(World {
             o_pow_l: Out::new(&groups, "motor_flight_power_left"),
@@ -479,7 +548,8 @@ impl World {
             stim: Vec::with_capacity(512),
             window_spikes: Vec::with_capacity(4096),
             loom_imposed: None,
-            loom_retinotopic: std::env::var("FLYVERSE_LOOM_RETINOTOPIC").is_ok(),
+            odor_imposed: None,
+            loom_retinotopic: loom_retinotopic_default(),
             mn_gain,
             mn_cells,
             mn_members,
@@ -598,8 +668,19 @@ impl World {
         let pl = [head[0] + lat[0] * a, head[1] + lat[1] * a, head[2]];
         let pr = [head[0] - lat[0] * a, head[1] - lat[1] * a, head[2]];
         let og = if self.odor_on { 1.0f32 } else { 0.0f32 };
-        self.odor_l = self.room.odor(pl, self.food) * og;
-        self.odor_r = self.room.odor(pr, self.food) * og;
+        // An imposed odour (the open-loop probe) replaces the room's field at
+        // the antennae. It is the same drive the room's field would produce --
+        // same two channels -- so the probe measures this pathway as it is
+        // wired, not a parallel one.
+        let (ol, or_) = match self.odor_imposed {
+            Some((l, r)) => (l, r),
+            None => (
+                self.room.odor(pl, self.food) * og,
+                self.room.odor(pr, self.food) * og,
+            ),
+        };
+        self.odor_l = ol;
+        self.odor_r = or_;
         // Antennal olfactory receptor neurons run up to about 120 Hz on strong
         // odour; below that the rate is proportional to concentration.
         self.d_olf_l.rate_hz = self.odor_l as f64 * 120.0;
@@ -770,6 +851,32 @@ impl World {
     /// Restore the closed-loop loom (the default state).
     pub fn clear_imposed_loom(&mut self) {
         self.loom_imposed = None;
+    }
+
+    /// Impose an odour stimulus: `left`/`right` are the odour concentrations
+    /// (0..1 scale) seen at the two antennae, driving the two `olfaction` pools
+    /// at 120 Hz * concentration -- the same mapping `sense` uses for the room's
+    /// own field, so the imposed stimulus lives on the channel's own scale.
+    ///
+    /// Measurement only, and symmetric with `set_imposed_loom`: it replaces the
+    /// STIMULUS at the sense organ, never the wiring, and never touches the body.
+    pub fn set_imposed_odor(&mut self, left: f32, right: f32) {
+        self.odor_imposed = Some((left.max(0.0), right.max(0.0)));
+    }
+
+    /// Restore the room's own odour field at the antennae (the default state).
+    pub fn clear_imposed_odor(&mut self) {
+        self.odor_imposed = None;
+    }
+
+    /// The odour drive rate actually delivered to each `olfaction` pool, Hz.
+    /// The positive control for the odour probe: it says whether the stimulus
+    /// reached the brain, independently of whether the brain did anything.
+    pub fn olf_drive_hz_by_eye(&self) -> (f32, f32) {
+        (
+            self.d_olf_l.rate_hz as f32,
+            self.d_olf_r.rate_hz as f32,
+        )
     }
 
     /// Switch the closed loop between the shared body-heading scalar loom

@@ -71,6 +71,15 @@ pub struct LoomProbeOptions {
     /// positive control is the per-eye photoreceptor drive rate, not the loom
     /// pool.
     pub retinal: bool,
+    /// ODOUR mode. Impose an odour concentration at each antenna instead of
+    /// letting the room's field supply it, driving the two `olfaction` pools at
+    /// 120 Hz * concentration -- the same mapping `World::sense` uses. This is
+    /// the open-loop test of the second, non-visual route to the fruit: the
+    /// odour field already exists in `room.rs`, so the question is only whether
+    /// an odour gradient reaches the flight steering pools at all. The levels
+    /// are odour concentrations (0..1 scale) and the positive control is the
+    /// per-pool drive rate.
+    pub odour: bool,
 }
 
 /// Which pools are stimulated, and how hard.
@@ -146,8 +155,19 @@ pub fn loom_probe(pack: &Path, o: &Options, p: &LoomProbeOptions) -> Result<()> 
         w.set_loom_retinotopic(true);
         println!(
             "loom probe: LATERAL RETINAL mode -- additive luminance on one eye's {} / {} columns, \
-             closed-loop loom = per-eye retinotopic (FLYVERSE_LOOM_RETINOTOPIC on)",
+             closed-loop loom = per-eye retinotopic",
             cl, cr
+        );
+    }
+    if p.odour {
+        println!(
+            "odour probe: LATERAL ODOUR mode -- imposed concentration at the two antennae, \
+             driving the `olfaction` pools (left {}, right {} cells) at 120 Hz * concentration. \
+             The room's own odour field is overridden only while a trial is held; odour channel \
+             {}.",
+            loom_pool_size(&w, "olfaction_left"),
+            loom_pool_size(&w, "olfaction_right"),
+            if w.odor_on { "live" } else { "SILENCED (FLYVERSE_NO_ODOR)" }
         );
     }
 
@@ -164,12 +184,17 @@ pub fn loom_probe(pack: &Path, o: &Options, p: &LoomProbeOptions) -> Result<()> 
     for &v in &levels {
         // The tag carries the native units: Hz for the loom-pool mode,
         // luminance for the retinal mode.
-        let unit = if p.retinal { "lum" } else { "Hz" };
-        let shown = if p.retinal { v } else { 60.0 * v };
+        let unit = if p.retinal { "lum" } else if p.odour { "odor" } else { "Hz" };
+        let shown = if p.retinal || p.odour { v } else { 60.0 * v };
+        let (tag_l, tag_r) = if p.odour {
+            ("left antenna", "right antenna")
+        } else {
+            ("left eye", "right eye")
+        };
         for (tag, l, r) in [
-            ("left eye", v, 0.0f32),
-            ("right eye", 0.0f32, v),
-            ("both eyes (symmetric)", v, v),
+            (tag_l, v, 0.0f32),
+            (tag_r, 0.0f32, v),
+            ("both sides (symmetric)", v, v),
         ] {
             conds.push(Condition {
                 name: format!("{tag} +{shown:.2} {unit} (level {v:.2})"),
@@ -225,6 +250,7 @@ pub fn loom_probe(pack: &Path, o: &Options, p: &LoomProbeOptions) -> Result<()> 
         if t > 0 {
             w.clear_imposed_loom();
             w.retina.clear_imposed_lum();
+            w.clear_imposed_odor();
             for _ in 0..iti_windows {
                 w.advance();
             }
@@ -233,6 +259,8 @@ pub fn loom_probe(pack: &Path, o: &Options, p: &LoomProbeOptions) -> Result<()> 
         // window in which it is in effect, so no conduction delay is baked in.
         if p.retinal {
             w.retina.set_imposed_lum(c.left, c.right);
+        } else if p.odour {
+            w.set_imposed_odor(c.left, c.right);
         } else {
             w.set_imposed_loom(c.left / 60.0, c.right / 60.0);
         }
@@ -260,6 +288,10 @@ pub fn loom_probe(pack: &Path, o: &Options, p: &LoomProbeOptions) -> Result<()> 
             }
             if p.retinal {
                 let (dl, dr) = w.retina.drive_hz_by_eye();
+                lm[0] += dl as f64;
+                lm[1] += dr as f64;
+            } else if p.odour {
+                let (dl, dr) = w.olf_drive_hz_by_eye();
                 lm[0] += dl as f64;
                 lm[1] += dr as f64;
             } else {
@@ -298,20 +330,36 @@ pub fn loom_probe(pack: &Path, o: &Options, p: &LoomProbeOptions) -> Result<()> 
     }
     w.clear_imposed_loom();
     w.retina.clear_imposed_lum();
-    println!("\n=== OPEN-LOOP LOOM PROBE ===");
-    println!(
-        "Imposed looming stimulus, both signs and several rates, held for {:.0} ms. \
-         Probe floor is |t| ~ 2.3.",
-        p.response_ms
-    );
+    w.clear_imposed_odor();
+    if p.odour {
+        println!("\n=== OPEN-LOOP ODOUR PROBE ===");
+        println!(
+            "Imposed odour concentration at each antenna, both signs and several \
+             concentrations, held for {:.0} ms. The two `olfaction` pools are driven at \
+             120 Hz * concentration, the same mapping the room's own field uses. \
+             Probe floor is |t| ~ 2.3.",
+            p.response_ms
+        );
+        println!(
+            "No stimulus is injected anywhere past the antennae: this is the existing \
+             odour channel, driven open-loop.\n"
+        );
+    } else {
+        println!("\n=== OPEN-LOOP LOOM PROBE ===");
+        println!(
+            "Imposed looming stimulus, both signs and several rates, held for {:.0} ms. \
+             Probe floor is |t| ~ 2.3.",
+            p.response_ms
+        );
+    }
     println!(
         "Every condition is compared with the null by Welch t on the per-trial means; \
          a condition is a response only if it clears the floor.\n"
     );
 
     let nul = &conds[0];
-    let pc_lab = if p.retinal { "driveL Hz" } else { "loomL Hz" };
-    let pc_lab2 = if p.retinal { "driveR Hz" } else { "loomR Hz" };
+    let pc_lab = if p.retinal || p.odour { "driveL Hz" } else { "loomL Hz" };
+    let pc_lab2 = if p.retinal || p.odour { "driveR Hz" } else { "loomR Hz" };
     println!(
         "{:<34} {:>7} {:>10} {:>9} {:>9} {:>8} {:>8}",
         "condition", "air%", pc_lab, pc_lab2, "steerR-L", "yaw r/s", "|yaw|"
@@ -393,7 +441,7 @@ pub fn loom_probe(pack: &Path, o: &Options, p: &LoomProbeOptions) -> Result<()> 
         );
         level_rows.push(serde_json::json!({
             "level": v,
-            "hz": 60.0 * v,
+            "hz": if p.odour { 120.0 * v } else { 60.0 * v },
             "left_eye_steer_differential_mean": dl,
             "right_eye_steer_differential_mean": dr,
             "difference": dl - dr,
@@ -441,17 +489,24 @@ pub fn loom_probe(pack: &Path, o: &Options, p: &LoomProbeOptions) -> Result<()> 
          alone produces.",
         floor_t, floor_where, conds.len() - 1, stimulated
     );
+    let what = if p.odour {
+        "an imposed odour gradient"
+    } else if p.retinal {
+        "the imposed lateral luminance step"
+    } else {
+        "the imposed looming stimulus"
+    };
     if best_t < floor_t {
         println!(
             "VERDICT: no stimulated condition reaches even the measured no-stimulus floor \
-             ({:.2} < {:.2}). Within this probe's power the imposed looming stimulus does not \
-             reach the steering motor output.",
+             ({:.2} < {:.2}). Within this probe's power {what} does not reach the steering \
+             motor output.",
             best_t, floor_t
         );
     } else if best_t < 2.3 {
         println!(
             "VERDICT: no condition reaches the |t| ~ 2.3 floor (best {:.2}). Within this \
-             probe's power the imposed looming stimulus does not reach the steering motor output.",
+             probe's power {what} does not reach the steering motor output.",
             best_t
         );
     } else {
@@ -485,7 +540,14 @@ pub fn loom_probe(pack: &Path, o: &Options, p: &LoomProbeOptions) -> Result<()> 
     }
     let out = serde_json::json!({
         "seed": o.seed,
-        "mode": if p.retinal { "retinal-lateral" } else { "loom-pool" },
+        "mode": if p.odour {
+            "odour-lateral"
+        } else if p.retinal {
+            "retinal-lateral"
+        } else {
+            "loom-pool"
+        },
+        "odour_stimulus": p.odour,
         "retinal_lum_stimulus": p.retinal,
         "loom_retinotopic_closed_loop": w.loom_retinotopic,
         "response_ms": p.response_ms,

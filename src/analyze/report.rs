@@ -62,7 +62,8 @@ pub(crate) fn write_csv(path: &PathBuf, s: &[Sample]) -> Result<()> {
 walk_l,walk_r,land_l,land_r,mn9,dn02,dn07,sapp,land_dn,dn_filt,odor_l,odor_r,flow_l,flow_r,\
 loom,taste,wall_dist,tau_roll,tau_pitch,tau_yaw,damp_roll,damp_pitch,damp_yaw,wroll,wpitch,\
 wyaw,tilt_l,tilt_r,tilt_deg,fz_body,fz_world,steer_l_hz,steer_r_hz,touch_x,touch_y,touch_z,\
-tau_yaw_tilt,tau_yaw_amp,wall_hits,takeoffs,landings,eats,win_spikes,tot_spikes"
+tau_yaw_tilt,tau_yaw_amp,wall_hits,takeoffs,landings,eats,win_spikes,tot_spikes,\
+fruit_dist,fruit_az,fruit_cols,lum_l,lum_r,uv_l,uv_r,gr_l,gr_r"
     )?;
     for x in s {
         writeln!(
@@ -71,7 +72,8 @@ tau_yaw_tilt,tau_yaw_amp,wall_hits,takeoffs,landings,eats,win_spikes,tot_spikes"
 {:.4},{:.4},{:.4},{:.4},{:.4},{:.4},{:.4},{:.4},{:.4},{:.4},{:.4},{:.4},{:.4},{:.4},\
 {:.4},{:.1},{:.2},{:.2},{:.2},{:.2},{:.2},{:.2},{:.2},{:.4},{:.4},\
 {:.4},{:.4},{:.4},{:.2},{:.2},{:.2},{:.2},{:.2},{:.2},{:.2},{},{},{},\
-{},{},{},{},{},{}",
+{},{},{},{},{},{},\
+{:.1},{:.4},{},{:.4},{:.4},{:.4},{:.4},{:.4},{:.4}",
             x.t, x.x, x.y, x.z, x.speed, x.yaw, x.yaw_rate, x.roll, x.pitch, x.wing_amp, x.mode,
             x.pow_l, x.pow_r, x.steer_l, x.steer_r, x.walk_l, x.walk_r, x.land_l, x.land_r, x.mn9,
             x.dn02, x.dn07, x.sapp, x.land_dn, x.dn_filt, x.odor_l, x.odor_r, x.flow_l, x.flow_r,
@@ -83,7 +85,9 @@ tau_yaw_tilt,tau_yaw_amp,wall_hits,takeoffs,landings,eats,win_spikes,tot_spikes"
             x.touch[0] as u8, x.touch[1] as u8, x.touch[2] as u8,
             x.tau_yaw_tilt, x.tau_yaw_amp,
             x.wall_hits, x.takeoffs, x.landings, x.eats,
-            x.win_spikes, x.tot_spikes
+            x.win_spikes, x.tot_spikes,
+            x.fruit_dist, x.fruit_az, x.fruit_cols,
+            x.lum_l, x.lum_r, x.uv_l, x.uv_r, x.gr_l, x.gr_r
         )?;
     }
     f.flush()?;

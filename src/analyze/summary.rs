@@ -21,6 +21,19 @@ pub(crate) fn summarize(
     let air = sel(s, |x| x.mode == 1 || x.mode == 2 || x.mode == 3);
     let cruise = sel(s, |x| x.mode == 2);
     let minutes = (sim_seconds / 60.0).max(1e-9);
+    let fruit_present = w.room.fruit.is_some();
+    // Fraction of samples closer to the fruit's place than the run started.
+    // Computed outside the `json!` call: the macro reads a `{ .. }` in value
+    // position as a nested object, so a statement block cannot go there.
+    let pct_closer = {
+        let mut c = 0usize;
+        for x in s {
+            if x.fruit_dist < s.first().map(|f| f.fruit_dist).unwrap_or(x.fruit_dist) {
+                c += 1;
+            }
+        }
+        100.0 * c as f64 / n as f64
+    };
 
     // Mode occupancy.
     let mut mode_time = [0f64; 5];
@@ -228,6 +241,91 @@ pub(crate) fn summarize(
             "photoreceptor_hz": w.retina.photo_hz(DT_MS as f64),
             "mean_luminance": w.retina.mean_lum(),
             "optic_flow_proxy": w.flow_on && !w.retina.on,
+            // What the retina drives, by spectral class. A retina that has
+            // collapsed back to one luminance channel would show a single
+            // non-zero entry here.
+            "spectral_class_cells": {
+                "R16_Rh1_478nm": w.retina.class_cells[0],
+                "R7p_Rh3_345nm": w.retina.class_cells[1],
+                "R7y_Rh4_375nm": w.retina.class_cells[2],
+                "R8p_Rh5_437nm": w.retina.class_cells[3],
+                "R8y_Rh6_508nm": w.retina.class_cells[4],
+                "R7u": w.retina.class_cells[5],
+                "R8u": w.retina.class_cells[6],
+            },
+            "chromatic_cells": w.retina.class_cells[1..].iter().sum::<usize>(),
+            "spectral_bands": crate::vision::NBANDS,
+            "illuminant": "equal-energy reference E (flat); spectral shaping comes only \
+                           from the opsins and the surfaces' reflectance",
+        },
+        // Does the fly get closer to the fruit, and does the colour in its eyes
+        // move the steering? Every number here is measured from this run.
+        "fruit": {
+            "present": w.room.fruit.is_some(),
+            "centre_mm": w.room.fruit.map(|f| vec![f.c[0], f.c[1], f.c[2]]),
+            "radius_mm": w.room.fruit.map(|f| f.r),
+            "rendered_grey": w.room.fruit_grey,
+            "distance_mm": {
+                "first": first.fruit_dist,
+                "last": last.fruit_dist,
+                "min": s.iter().map(|x| x.fruit_dist).fold(f32::INFINITY, f32::min),
+                "mean": mean(&col(s, |x| x.fruit_dist)),
+            },
+            // Positive = the run ended closer to the fruit's place than it
+            // started. Meaningless without a control run; see
+            // docs/colour-vision-and-fruit.md. The metric is defined in the
+            // clear-room control too, which is what makes the comparison
+            // possible at all.
+            "approach_mm": first.fruit_dist - last.fruit_dist,
+            "pct_samples_closer_than_start": pct_closer,
+            "optics": {
+                "pct_samples_seeing_fruit": if fruit_present {
+                    100.0 * s.iter().filter(|x| x.fruit_cols > 0).count() as f64 / n as f64
+                } else { 0.0 },
+                "pct_airborne_seeing_fruit": if fruit_present {
+                    100.0 * air.iter().filter(|x| x.fruit_cols > 0).count() as f64 / at
+                } else { 0.0 },
+                "mean_columns_on_fruit_when_seen": if fruit_present {
+                    mean(&col(&sel(s, |x| x.fruit_cols > 0), |x| x.fruit_cols as f32))
+                } else { 0.0 },
+            },
+            // The lateral visual drive, i.e. what the two eyes disagree about.
+            // `loom_retinotopic` is what the closed loop is actually delivering.
+            "visual_drive": {
+                "loom_retinotopic": w.loom_retinotopic,
+                "mean_abs_lum_L_minus_R": mean(&col(&air, |x| (x.lum_l - x.lum_r).abs())),
+                "mean_abs_chroma_L_minus_R": mean(&col(&air, |x| ((x.uv_l - x.uv_r) - (x.gr_l - x.gr_r)).abs())),
+                "corr_lateral_lum_vs_steer_diff": pearson(&col(&air, |x| x.lum_l - x.lum_r), &steer_v),
+                "corr_lateral_chroma_vs_steer_diff": pearson(
+                    &col(&air, |x| (x.uv_l - x.uv_r) - (x.gr_l - x.gr_r)),
+                    &steer_v,
+                ),
+                // Sanity check on the sign convention the turn-toward test uses:
+                // if this is not negative, `steer_r - steer_l` does not map onto
+                // yaw the way the steering-differential note establishes and the
+                // sign test below must not be read.
+                "corr_steer_diff_vs_yaw_rate": pearson(&steer_v, &yaw_v),
+            },
+            // Does the steering command reduce the bearing error to the fruit?
+            // `fruit_az > 0` means the fruit is to the LEFT, and a left steer is
+            // a lower `steer_r - steer_l`, so turning toward it means
+            // `fruit_az * (steer_l - steer_r) > 0`.
+            "turn_toward": {
+                "airborne_samples": air.len(),
+                "pct_steering_toward": if at > 0.0 {
+                    100.0 * air.iter().filter(|x| x.fruit_az * (x.steer_l - x.steer_r) > 0.0).count() as f64 / at
+                } else { 0.0 },
+                "pct_yawing_toward": if at > 0.0 {
+                    100.0 * air.iter().filter(|x| x.fruit_az * x.yaw_rate > 0.0).count() as f64 / at
+                } else { 0.0 },
+                "mean_cos_bearing_error": mean(&col(&air, |x| x.fruit_az.cos())),
+            },
+            "colour_channels": {
+                "uv_L_mean": mean(&col(&air, |x| x.uv_l)),
+                "uv_R_mean": mean(&col(&air, |x| x.uv_r)),
+                "green_L_mean": mean(&col(&air, |x| x.gr_l)),
+                "green_R_mean": mean(&col(&air, |x| x.gr_r)),
+            },
         },
         "mode_percent": {
             "GROUND": mode_pct(0),
