@@ -2,9 +2,16 @@
 # fly2video.sh -- turn one recorded flyverse run into an MP4, reproducibly.
 #
 #   tools/video/fly2video.sh --run /tmp/fv/part1/base_s7 --name room-1x-seed7 \
-#       [--view chase|room|top|orbit] [--fps 24] [--width 1600] [--height 900] \
+#       [--view chase|room|top|orbit|fpv|tps] [--fps 24] [--width 1600] [--height 900] \
 #       [--time-scale 1.0] [--label "TEXT"] [--sim-start S] [--sim-end S] \
 #       [--out docs/videos] [--keep-frames]
+#
+# Views. chase/room/top/orbit are the original four and are unchanged. fpv is
+# the fly's own first-person view (the camera is at the fly's eyes and rolls and
+# pitches with the body); tps is the third-person fly view (rigidly behind and
+# above the fly, level horizon, body centred). Both are defined in web/app.js
+# (CAMS.FPV / CAMS.TPS) and reach the page through driver.mjs -> replay.setCam;
+# neither is the default and neither changes the other four.
 #
 # What it does, in order:
 #   1. serves web/ over static HTTP (the visualiser needs modules + assets),

@@ -16,7 +16,7 @@ frame *k* is the run's `trace.csv` interpolated at simulated time
 
 ```bash
 tools/video/fly2video.sh --run DIR --name NAME \
-    [--view chase|room|top|orbit] [--fps 24] [--width 1600] [--height 900] \
+    [--view chase|room|top|orbit|fpv|tps] [--fps 24] [--width 1600] [--height 900] \
     [--time-scale 1.0] [--label "TEXT"] [--sim-start S] [--sim-end S] \
     [--out docs/videos] [--keep-frames]
 ```
@@ -35,6 +35,18 @@ tools/video/render-all.sh --jobs 3
 
 `--jobs N` runs N videos at a time, each child on its own static-server and
 DevTools port pair.
+
+The same set on the fly's own two cameras is a second set, off by default:
+
+```bash
+tools/video/render-all.sh --set flyviews --jobs 3
+```
+
+`--set main` is the default, so the command above is exactly the standing set it
+always was. `--set flyviews` renders one row per distinct run directory of that
+set in **first person** (`--view fpv`) and two third-person (`--view tps`)
+references, named `<row>-fpv` / `<row>-tps` so they land beside the standing set
+instead of over it (§3.1).
 
 ### What it does
 
@@ -106,6 +118,18 @@ predates the render, so these are the exact bytes that were encoded):
 from the same data; the driver maps columns **by header name**, not by
 position, so added columns do not shift the overlay.)
 
+**One update to the above, found while adding the fpv set.** "Byte-identical"
+holds against a *fixed browser build*, not forever: re-rendering
+`room-1x-seed7` on this host today, with the camera change present and with it
+stashed out of the tree, gives the **same** file both ways
+(`md5 eb9da6133bad5b193a710f7bdc2ff84e`, 4570014 bytes) but 18 bytes away from
+the committed `993588a5…` copy — the host now resolves a different
+`chrome-headless-shell` bundle than the one the committed encodes were made
+with, and the software-GL rasteriser is part of the output. The pipeline is
+internally deterministic (same browser build in, same bytes out) and the change
+above cost the four original cameras nothing; the absolute hashes in this
+section should be read as "the build that made them".
+
 ---
 
 ## 2. How the visualiser is driven (recon)
@@ -135,17 +159,61 @@ The visualiser renders a *live* simulation:
   replaying the recorded trace in the page rather than by pacing the live
   server.
 
-**Cameras.** All four exist and are selectable, by button or by key `0`-`3`:
+**Cameras.** All six exist and are selectable:
 
 | # | name | selection | definition |
 |---|---|---|---|
-| 0 | chase | `#cam-0`, key `0` | `web/app.js:992` — clamped inside the room, follows the fly |
-| 1 | room | `#cam-1`, key `1` | `web/app.js:1006` — fixed outside the room at `ROOM_CAM_POS` (`web/app.js:979`) |
-| 2 | top | `#cam-2`, key `2` | `web/app.js:1011` |
-| 3 | orbit | `#cam-3`, key `3` | `web/app.js:1015` — drag to rotate, wheel to zoom |
+| 0 | chase | `#cam-0`, key `0` | `web/app.js:1052` — clamped inside the room, follows the fly |
+| 1 | room | `#cam-1`, key `1` | `web/app.js:1066` — fixed outside the room at `ROOM_CAM_POS` (`web/app.js:1021`) |
+| 2 | top | `#cam-2`, key `2` | `web/app.js:1071` |
+| 3 | orbit | `#cam-3`, key `3` | `web/app.js:1096` — drag to rotate, wheel to zoom |
+| 4 | fpv | key `4` (`--view fpv`) | `web/app.js:1075` — **first person**: at the fly's own eyes, oriented by the body's own attitude |
+| 5 | tps | key `5` (`--view tps`) | `web/app.js:1086` — **third person**: rigidly behind and above the fly, level horizon, body centred |
 
-Default is chase (`web/app.js:970`). `docs/chase-cam.png` and
-`docs/room-cam.png` are the two documented reference captures.
+Default is chase (`web/app.js:1011`, `web/app.js:1390`).
+`docs/chase-cam.png` and `docs/room-cam.png` are the two documented reference
+captures.
+
+### The fly's own two cameras (4 fpv, 5 tps)
+
+Both were added for the video pipeline; neither is the default, neither is
+clamped to the room, and neither is smoothed, so a captured frame is exactly the
+body's record at that instant with no lerp state carried in.
+
+- **fpv — first person.** `flyEyePoint()` (`web/app.js:1038`) takes the world
+  position of the **rig's own** `l_eye` and `r_eye` nodes (`assets/rig.json`)
+  and puts the camera at their midpoint; orientation is the body's own `+X`
+  forward and `+Z` up (`flyRoot.quaternion`, the same body frame the chase
+  camera reads). The camera therefore rolls and pitches with the fly — the
+  horizon tilting in a first-person frame *is* the recorded roll and pitch. It
+  falls back to the `c_head` node, and to the body origin only if the rig never
+  loaded. Nothing is hidden: from inside the head the eye meshes' front faces
+  are behind the camera, so the fly does not occlude itself.
+- **tps — third person.** Rigidly `camState.chaseDist` (24 mm by default, the
+  same wheel-zoomable value chase uses) behind the fly in the body's frame and
+  `0.45 x` that above it, looking at the body with the world up, so the horizon
+  stays level and the body stays centred. It is not clamped inside the room, so
+  it does not drift when the fly is near a wall.
+
+**The live panel is deliberately unchanged.** The button row and the hint text
+still say `0-3`, because those are inside the captured frame: adding a button row
+would shift the left column and change the pixels of every video already in this
+directory. The two new views are reached by **key `4` / key `5`** on the live
+page and by `--view fpv|tps` in the pipeline. This was verified rather than
+assumed: `room-1x-seed7` re-rendered on the chase camera with the camera change
+present and with it stashed out of the tree produces the **same** file
+(`md5 eb9da6133bad5b193a710f7bdc2ff84e`, 4570014 bytes) both ways, i.e. the six
+camera modes cost the four original ones nothing. (That file is 18 bytes away
+from the committed copy, `md5 993588a5…`, 4570032 bytes, on both renders — the
+difference is the headless Chrome build the host now resolves, not the camera
+code; the committed encodes were made with the bundle then on disk.)
+
+For the same reason the footer's build stamp (`web/app.js:24`, `APP_VER`) is
+still `20260913a` even though `web/app.js` changed: it is rendered into the
+frame, so bumping it would make the `-fpv` / `-tps` set and the standing set
+disagree on screen, and would put every future re-render of the standing set a
+second avoidable step away from the committed copies. The two sets are from the
+same page and the same stamp; the camera code is the only difference.
 
 **HUD.** Two panels plus a footer (`web/index.html`):
 
@@ -347,6 +415,79 @@ the two objects the page accepted) and the `fruitSpec` / `handSpec` they were
 built from — so a row that drew nothing and a row that drew the wrong thing are
 distinguishable after the fact.
 
+### 3.1 The first-person set: the same runs on the fly's own camera
+
+```bash
+tools/video/render-all.sh --set flyviews --jobs 3
+```
+
+The standing set above answers "what did the body do". This one answers "what
+did the fly see while doing it": **every run directory of that set, rendered on
+the first-person camera** (`--view fpv`, the view from the fly's own eyes), plus
+two third-person references (`--view tps`). Same run, same replay, same overlay,
+same 24 fps / 1600x900 / 1 s sim = 1 s video — the only difference is where the
+camera is.
+
+The rows are named from the standing set with a `-fpv` / `-tps` suffix, so the
+two sets sit side by side and neither overwrites the other. One row per
+*distinct run directory*: the standing set holds two rows for `runs/analyze`
+(chase and room) and first person is the same view for both, so that pair
+contributes one `-fpv` row, not two.
+
+`airborne` below is the share of the run's samples whose `mode` is TAKEOFF,
+CRUISE or LANDING — a count over `trace.csv`, computed here, not an overlay
+field. It is in the table because it is what decides what a first-person frame
+can contain: a grounded fly's view is a floor-level view, and on the two rows at
+`0.0 %` the fly never leaves the floor at all.
+
+| MP4 | run directory | camera | airborne | size (B) | share URL |
+|---|---|---|---|---|---|
+| `default-flight-baseline-fpv.mp4` | `runs/analyze` | fpv | 0.0 % | 1329807 | https://share.skg.gg/u/iXCKMg.mp4 |
+| `room-1x-seed7-fpv.mp4` | `/tmp/fv/part1/base_s7` | fpv | 13.0 % | 2550329 | https://share.skg.gg/u/dA803i.mp4 |
+| `room-2x-seed7-fpv.mp4` | `/tmp/fv/part1/s2_s7` | fpv | 32.3 % | 2412702 | https://share.skg.gg/u/HcMh3j.mp4 |
+| `room-4x-seed7-fpv.mp4` | `/tmp/fv/part1/s4_s7` | fpv | 37.9 % | 2948430 | https://share.skg.gg/u/6wNdCR.mp4 |
+| `room-4x-floor-1x-ceiling-seed7-fpv.mp4` | `/tmp/fv/part1/s4_h220_s7` | fpv | 55.2 % | 2214638 | https://share.skg.gg/u/DuCfoh.mp4 |
+| `room-8x-seed7-fpv.mp4` | `/tmp/fv/part1/s8_s7` | fpv | 54.6 % | 2763866 | https://share.skg.gg/u/kk48jJ.mp4 |
+| `room-1x-floor-5p5x-ceiling-seed7-fpv.mp4` | `/tmp/fv/part1/s1_h1200_s7` | fpv | 49.5 % | 1789649 | https://share.skg.gg/u/px07by.mp4 |
+| `room-1x-seed11-fpv.mp4` | `/tmp/fv/part1/base_s11` | fpv | 58.2 % | 2622205 | https://share.skg.gg/u/bWyZ6l.mp4 |
+| `room-1x-seed23-fpv.mp4` | `/tmp/fv/part1/base_s23` | fpv | 40.2 % | 2093198 | https://share.skg.gg/u/wv39u9.mp4 |
+| `room-4x-seed23-degenerate-fpv.mp4` | `/tmp/fv/part1/s4_s23` | fpv | 0.0 % | 3100525 | https://share.skg.gg/u/Ckf6oU.mp4 |
+| `ablation-baseline-seed7-fpv.mp4` | `/tmp/attr/baseline` | fpv | 99.3 % | 1433412 | https://share.skg.gg/u/oo1dbD.mp4 |
+| `ablation-no-retina-seed7-fpv.mp4` | `/tmp/attr/no-retina` | fpv | 99.3 % | 1199340 | https://share.skg.gg/u/9SaAbC.mp4 |
+| `fruit-in-room-seed7-fpv.mp4` | `/tmp/fv/after_s7` | fpv | 9.4 % | 2865544 | https://share.skg.gg/u/CFLnAb.mp4 |
+| `fruit-no-fruit-control-seed7-fpv.mp4` | `/tmp/fv/grain_s7` | fpv | 9.4 % | 2822739 | https://share.skg.gg/u/MWcqkG.mp4 |
+| `hand-slap-seed7-fpv.mp4` | `/tmp/fv/hand1x/s7_approach` | fpv | 81.5 % | 2664470 | https://share.skg.gg/u/buio1k.mp4 |
+| `hand-slap-static-control-seed7-fpv.mp4` | `/tmp/fv/hand1x/s7_static` | fpv | 20.6 % | 1511859 | https://share.skg.gg/u/GSbIae.mp4 |
+| `hand-slap-fast-seed11-fpv.mp4` | `/tmp/fv/fast1x/s11_approach` | fpv | 66.2 % | 2351182 | https://share.skg.gg/u/fM8r8C.mp4 |
+| `hand-slap-fast-static-control-seed11-fpv.mp4` | `/tmp/fv/fast1x/s11_static` | fpv | 88.8 % | 2760818 | https://share.skg.gg/u/PiXFUH.mp4 |
+| `default-flight-baseline-tps.mp4` | `runs/analyze` | tps | 0.0 % | 2751491 | https://share.skg.gg/u/9p6O6d.mp4 |
+| `hand-slap-seed7-tps.mp4` | `/tmp/fv/hand1x/s7_approach` | tps | 81.5 % | 5061805 | https://share.skg.gg/u/Q9rYoi.mp4 |
+
+All 20 were verified after rendering the same way the standing set was: each
+render's `*.meta.json` records the `--run` directory, the `view` and the
+`camMode` the page actually accepted, and all 20 name the run directory in the
+table above with `view=fpv|tps` and `camMode=4|5`, 288 frames, 12.000 s,
+1600x900. All 20 were re-downloaded from their share URL and `md5sum`-compared
+to the local file (`200`, byte-identical); the full 39-row table is in
+`LINKS.md`.
+
+**What the first-person set shows that the standing set cannot.** The camera is
+at the fly's own eyes and takes the body's own attitude, so the roll and pitch
+that the chase camera *reports* are, in these videos, what the frame does: the
+horizon tilting in `room-1x-seed11-fpv` is the recorded roll. The stimulus
+objects are in the fly's view rather than the room's: in
+`hand-slap-seed7-fpv.mp4` the palm's box enters the upper left of the frame at
+the launch (t ≈ 2.05-2.30 s) and stays until it is past, with the table and the
+red fruit sphere under it, and in `ablation-*-fpv` the 99.3 % airborne pair can
+be compared from the body's own seat.
+
+Its limits are the same kind as §6 and are stated there: the fly is not in its
+own frame, the room shell is translucent, and on the rows where the body spends
+the run pressed against a wall the camera is looking through it at the region
+beyond. That is the recorded attitude, not a rendering fault, and it is the
+sharpest way to see the behaviour the documents describe — the body has no wall
+avoidance and its "view" is mostly a wall.
+
 ---
 
 ## 4. Overlay fields and where each comes from
@@ -421,25 +562,44 @@ files) are:
 | video | duration | resolution | size (B) | share URL |
 |---|---|---|---|---|
 | `ablation-baseline-seed7` | 12.000 | 1600x900 | 3767151 | https://share.skg.gg/u/0c6YfX.mp4 |
+| `ablation-baseline-seed7-fpv` | 12.000 | 1600x900 | 1433412 | https://share.skg.gg/u/oo1dbD.mp4 |
 | `ablation-no-retina-seed7` | 12.000 | 1600x900 | 3755279 | https://share.skg.gg/u/WdtGj6.mp4 |
+| `ablation-no-retina-seed7-fpv` | 12.000 | 1600x900 | 1199340 | https://share.skg.gg/u/9SaAbC.mp4 |
 | `default-flight-baseline` | 12.000 | 1600x900 | 2364737 | https://share.skg.gg/u/VdoMmK.mp4 |
+| `default-flight-baseline-fpv` | 12.000 | 1600x900 | 1329807 | https://share.skg.gg/u/iXCKMg.mp4 |
 | `default-flight-baseline-roomcam` | 12.000 | 1600x900 | 968796 | https://share.skg.gg/u/pGNmTe.mp4 |
-| `room-1x-floor-5p5x-ceiling-seed7` | 12.000 | 1600x900 | 4296489 | https://share.skg.gg/u/aMA8fg.mp4 |
-| `room-1x-seed11` | 12.000 | 1600x900 | 5524535 | https://share.skg.gg/u/kuEKE6.mp4 |
-| `room-1x-seed23` | 12.000 | 1600x900 | 4743147 | https://share.skg.gg/u/DyLzWR.mp4 |
-| `room-1x-seed7` | 12.000 | 1600x900 | 4570032 | https://share.skg.gg/u/L5gnb9.mp4 |
-| `room-2x-seed7` | 12.000 | 1600x900 | 3942550 | https://share.skg.gg/u/NbdUYy.mp4 |
-| `room-4x-floor-1x-ceiling-seed7` | 12.000 | 1600x900 | 4128772 | https://share.skg.gg/u/FgG1eX.mp4 |
-| `room-4x-seed23-degenerate` | 12.000 | 1600x900 | 3475248 | https://share.skg.gg/u/97tKMM.mp4 |
-| `room-4x-seed7` | 12.000 | 1600x900 | 3772673 | https://share.skg.gg/u/kcdrIv.mp4 |
-| `room-8x-seed7` | 12.000 | 1600x900 | 3314521 | https://share.skg.gg/u/mFYboi.mp4 |
+| `default-flight-baseline-tps` | 12.000 | 1600x900 | 2751491 | https://share.skg.gg/u/9p6O6d.mp4 |
 | `fruit-in-room-seed7` | 12.000 | 1600x900 | 988395 | https://share.skg.gg/u/6VnpEv.mp4 |
+| `fruit-in-room-seed7-fpv` | 12.000 | 1600x900 | 2865544 | https://share.skg.gg/u/CFLnAb.mp4 |
 | `fruit-no-fruit-control-seed7` | 12.000 | 1600x900 | 993617 | https://share.skg.gg/u/dJHytZ.mp4 |
-| `hand-slap-seed7` | 12.000 | 1600x900 | 1115244 | https://share.skg.gg/u/mMUeOC.mp4 |
-| `hand-slap-static-control-seed7` | 12.000 | 1600x900 | 1041570 | https://share.skg.gg/u/jlH7VC.mp4 |
+| `fruit-no-fruit-control-seed7-fpv` | 12.000 | 1600x900 | 2822739 | https://share.skg.gg/u/MWcqkG.mp4 |
 | `hand-slap-fast-seed11` | 12.000 | 1600x900 | 1099198 | https://share.skg.gg/u/qzVQUp.mp4 |
+| `hand-slap-fast-seed11-fpv` | 12.000 | 1600x900 | 2351182 | https://share.skg.gg/u/fM8r8C.mp4 |
 | `hand-slap-fast-static-control-seed11` | 12.000 | 1600x900 | 1119510 | https://share.skg.gg/u/HfR4Vw.mp4 |
-
+| `hand-slap-fast-static-control-seed11-fpv` | 12.000 | 1600x900 | 2760818 | https://share.skg.gg/u/PiXFUH.mp4 |
+| `hand-slap-seed7` | 12.000 | 1600x900 | 1115244 | https://share.skg.gg/u/mMUeOC.mp4 |
+| `hand-slap-seed7-fpv` | 12.000 | 1600x900 | 2664470 | https://share.skg.gg/u/buio1k.mp4 |
+| `hand-slap-seed7-tps` | 12.000 | 1600x900 | 5061805 | https://share.skg.gg/u/Q9rYoi.mp4 |
+| `hand-slap-static-control-seed7` | 12.000 | 1600x900 | 1041570 | https://share.skg.gg/u/jlH7VC.mp4 |
+| `hand-slap-static-control-seed7-fpv` | 12.000 | 1600x900 | 1511859 | https://share.skg.gg/u/GSbIae.mp4 |
+| `room-1x-floor-5p5x-ceiling-seed7` | 12.000 | 1600x900 | 4296489 | https://share.skg.gg/u/aMA8fg.mp4 |
+| `room-1x-floor-5p5x-ceiling-seed7-fpv` | 12.000 | 1600x900 | 1789649 | https://share.skg.gg/u/px07by.mp4 |
+| `room-1x-seed11` | 12.000 | 1600x900 | 5524535 | https://share.skg.gg/u/kuEKE6.mp4 |
+| `room-1x-seed11-fpv` | 12.000 | 1600x900 | 2622205 | https://share.skg.gg/u/bWyZ6l.mp4 |
+| `room-1x-seed23` | 12.000 | 1600x900 | 4743147 | https://share.skg.gg/u/DyLzWR.mp4 |
+| `room-1x-seed23-fpv` | 12.000 | 1600x900 | 2093198 | https://share.skg.gg/u/wv39u9.mp4 |
+| `room-1x-seed7` | 12.000 | 1600x900 | 4570032 | https://share.skg.gg/u/L5gnb9.mp4 |
+| `room-1x-seed7-fpv` | 12.000 | 1600x900 | 2550329 | https://share.skg.gg/u/dA803i.mp4 |
+| `room-2x-seed7` | 12.000 | 1600x900 | 3942550 | https://share.skg.gg/u/NbdUYy.mp4 |
+| `room-2x-seed7-fpv` | 12.000 | 1600x900 | 2412702 | https://share.skg.gg/u/HcMh3j.mp4 |
+| `room-4x-floor-1x-ceiling-seed7` | 12.000 | 1600x900 | 4128772 | https://share.skg.gg/u/FgG1eX.mp4 |
+| `room-4x-floor-1x-ceiling-seed7-fpv` | 12.000 | 1600x900 | 2214638 | https://share.skg.gg/u/DuCfoh.mp4 |
+| `room-4x-seed23-degenerate` | 12.000 | 1600x900 | 3475248 | https://share.skg.gg/u/97tKMM.mp4 |
+| `room-4x-seed23-degenerate-fpv` | 12.000 | 1600x900 | 3100525 | https://share.skg.gg/u/Ckf6oU.mp4 |
+| `room-4x-seed7` | 12.000 | 1600x900 | 3772673 | https://share.skg.gg/u/kcdrIv.mp4 |
+| `room-4x-seed7-fpv` | 12.000 | 1600x900 | 2948430 | https://share.skg.gg/u/6wNdCR.mp4 |
+| `room-8x-seed7` | 12.000 | 1600x900 | 3314521 | https://share.skg.gg/u/mFYboi.mp4 |
+| `room-8x-seed7-fpv` | 12.000 | 1600x900 | 2763866 | https://share.skg.gg/u/kk48jJ.mp4 |
 Uploading all 13 of the original set in one pass trips Zipline's rate limit after
 ~10 files (`429 Rate limit exceeded, retry in ~55 seconds`, and one transient
 Cloudflare `502`); the three that failed were uploaded after waiting out the
@@ -456,6 +616,18 @@ palm now drawn — §3) and re-uploaded the same way, one at a time with
 byte-compared after upload (all six `200`, all six matched). Their previous
 uploads, made before the fruit and the palm were drawn, are superseded:
 `VHrl67`, `K0ZmH4`, `wWfDnn`, `D5TcUi`, `hKE4Mf`, `3JSrPG`.
+
+The 20 first-person / third-person rows (§3.1) were uploaded the same way, one
+at a time with `--only NAME` and 4 s between uploads. The rate limit still bit:
+after 10 uploads in one pass the next four returned `429` (`room-4x-seed23-degenerate-fpv`,
+`ablation-baseline-seed7-fpv`, `fruit-in-room-seed7-fpv`,
+`fruit-no-fruit-control-seed7-fpv`); each was retried after the window had
+passed, singly, and all four then returned `200`. The failed attempts had added
+`_UPLOAD FAILED_` rows to `LINKS.md`, so the file was **rebuilt** from the
+directory listing plus the successful rows — same header and same six columns,
+one row per MP4, sorted, 39 rows, no failure rows and no duplicates. All 39
+rows were then re-downloaded and `md5sum`-compared to their local files: 39 of
+39 returned `200` and matched byte for byte.
 
 ---
 
@@ -526,6 +698,33 @@ uploads, made before the fruit and the palm were drawn, are superseded:
 - **The room camera is only correct at 1x.** Its fixed outside position
   (`web/app.js:979`) is not scaled, so `default-flight-baseline-roomcam.mp4`
   uses it at 1x and every scaled room is rendered on the chase camera instead.
+- **The first-person and third-person rows show the body's own seat, and that
+  seat is usually a wall.** Four limits, in the same spirit as the rest of this
+  section:
+  - **The fly is not in its own first-person frame.** The camera is where its
+    eyes are (§3.1), so the body is never drawn in an `-fpv` video; the two
+    `-tps` rows are the reference for what it looks like from outside while the
+    `-fpv` rows are what it looked at. It is a single 42° perspective camera at
+    the midpoint of the rig's `l_eye`/`r_eye` nodes
+    (`web/app.js:134`, `web/app.js:1038`) — not a compound-eye panorama, no
+    ommatidial sampling, no 360° field.
+  - **The fpv camera follows the rendered body, not the raw record.** It reads
+    `flyRoot.position`/`quaternion`, which `replayStep` drives toward the
+    frame's `pose` with a fixed per-step factor — the same deterministic
+    smoothing every other camera follows, and the same value in every render of
+    the same run, but it is the rendered body's eye point, not the recorded one.
+  - **The room shell is translucent, so "facing a wall" renders as empty
+    background.** The walls are see-through because the room camera looks in
+    through them (`web/app.js`, `ROOM_CAM_POS`); a first-person frame aimed at a
+    wall therefore shows the region *beyond* the wall, not a wall texture. The
+    body has no wall avoidance, so on most runs it spends much of the run
+    against a wall, and several `-fpv` rows are largely empty for exactly that
+    reason. Nothing was changed to hide it: making the walls opaque for the
+    first-person camera would change the pixels of the room-camera videos too.
+  - **Where the fly never leaves the floor, first person is a floor-level
+    crawl.** `default-flight-baseline-fpv` and `room-4x-seed23-degenerate-fpv`
+    are 0.0 % airborne (the degenerate row is the documented one — §3), so their
+    frames are from a walking body at ~2 mm altitude.
 - **Only what the simulation itself showed.** The video is the body's
   trajectory and the recorded read-outs. It shows nothing about the network
   beyond the spike counts that were recorded, and it is a rendering of a
@@ -536,14 +735,14 @@ uploads, made before the fruit and the palm were drawn, are superseded:
 ## 7. Files
 
 ```
-tools/video/fly2video.sh      one run  -> one MP4   (the single command)
-tools/video/render-all.sh     the standing set      (drives fly2video.sh)
+tools/video/fly2video.sh      one run  -> one MP4   (the single command; --view includes fpv|tps)
+tools/video/render-all.sh     the standing set, and (--set flyviews) the same runs in first person + 2 third person (drives fly2video.sh)
 tools/video/upload-zipline.sh the standing set -> Zipline, writes LINKS.md
 tools/video/driver.mjs        trace replay + hand.csv/fruit stimulus placement + frame capture over CDP
 tools/video/cdp.mjs           minimal DevTools Protocol client, no npm deps
 tools/video/overlay.mjs       the on-screen evidence panel (fruit/palm rows only for runs that recorded them)
 tools/video/detprobe.mjs      determinism probe used to validate the capture
-web/app.js                    gained the opt-in replay API and the replay-only fruit/palm objects
+web/app.js                    gained the opt-in replay API, the replay-only fruit/palm objects, and the fpv/tps cameras (CAMS.FPV / CAMS.TPS)
 docs/videos/LINKS.md          video -> share URL table
 ```
 

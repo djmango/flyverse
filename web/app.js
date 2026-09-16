@@ -991,7 +991,23 @@ function stopSpikePolling() {
 }
 
 // ---------------------------------------------------------------- cameras
-const CAMS = { CHASE: 0, ROOM: 1, TOP: 2, ORBIT: 3 };
+// Six views. 0-3 are the original set and are unchanged. 4 and 5 are the fly's
+// own two views:
+//
+//   FPV (4) -- first person. The camera is at the fly's own eyes (the midpoint
+//     of the two eye nodes on the rig) and is oriented by the body's own
+//     attitude, so the horizon rolls and pitches with the fly. No smoothing and
+//     no clamp: the view is exactly the body's record of that instant.
+//   TPS (5) -- third person. Rigidly behind and above the fly in the body's
+//     frame, looking at the fly, with the horizon kept level. It is not clamped
+//     inside the room and is not smoothed, so the body stays centred.
+//
+// The live panel's buttons and hint text still cover 0-3 (unchanged, so the
+// already-rendered frames stay byte-identical); the two new views are selected
+// with keys 4 and 5 on the live page, and by `--view fpv|tps` in the video
+// pipeline (`tools/video/driver.mjs` -> `replay.setCam`).
+const CAMS = { CHASE: 0, ROOM: 1, TOP: 2, ORBIT: 3, FPV: 4, TPS: 5 };
+const CAM_COUNT = 6;
 const camState = {
   mode: CAMS.CHASE,
   chaseDist: 24,
@@ -1012,6 +1028,24 @@ function clampInsideRoom(v) {
 
 const _fwd = new THREE.Vector3(), _left = new THREE.Vector3(), _up = new THREE.Vector3();
 const _desired = new THREE.Vector3(), _look = new THREE.Vector3();
+const _eyeL = new THREE.Vector3(), _eyeR = new THREE.Vector3();
+
+/// The fly's own eye point in world space, mm: the midpoint of the two eye
+/// nodes the rig carries (`bodyObjects.l_eye` / `r_eye`, both present in
+/// `assets/rig.json`). Falls back to the head node, and to the body origin only
+/// if the rig never loaded. Read from the rendered rig, so it is the same body
+/// the chase camera is following.
+function flyEyePoint(out) {
+  const le = bodyObjects.l_eye, re = bodyObjects.r_eye;
+  if (le && re) {
+    le.getWorldPosition(_eyeL);
+    re.getWorldPosition(_eyeR);
+    return out.copy(_eyeL).add(_eyeR).multiplyScalar(0.5);
+  }
+  const h = bodyObjects.c_head;
+  if (h) return h.getWorldPosition(out);
+  return out.copy(flyRoot.position);
+}
 
 function updateCamera(dt) {
   const flyPos = flyRoot.position;
@@ -1038,6 +1072,27 @@ function updateCamera(dt) {
     camera.up.set(0, 1, 0);
     camera.position.lerp(new THREE.Vector3(flyPos.x, flyPos.y, 400), 1 - Math.exp(-dt / 0.12));
     camera.lookAt(flyPos.x, flyPos.y, flyPos.z);
+  } else if (camState.mode === CAMS.FPV) {
+    // first person: the camera is at the fly's own eyes and is oriented by the
+    // body's own attitude, in the same +X forward / +Y left / +Z up body frame
+    // the chase camera reads. The eye point is the rig's own, so the view is
+    // the rendered body's view. No smoothing, no clamp.
+    _fwd.set(1, 0, 0).applyQuaternion(flyRoot.quaternion);
+    _up.set(0, 0, 1).applyQuaternion(flyRoot.quaternion);
+    camera.up.copy(_up);
+    flyEyePoint(camera.position);
+    _look.copy(camera.position).addScaledVector(_fwd, 10);   // 10 mm ahead: a direction, not a target
+    camera.lookAt(_look);
+  } else if (camState.mode === CAMS.TPS) {
+    // third person: rigidly behind and above the fly in the body's frame,
+    // looking at the body, with the world up so the horizon stays level. Not
+    // clamped inside the room and not smoothed, so the body stays centred.
+    camera.up.set(0, 0, 1);
+    _fwd.set(1, 0, 0).applyQuaternion(flyRoot.quaternion);
+    const D = camState.chaseDist;
+    _desired.copy(flyPos).addScaledVector(_fwd, -D).addScaledVector(_up.set(0, 0, 1), D * 0.45);
+    camera.position.copy(_desired);
+    camera.lookAt(flyPos);
   } else {
     camera.up.set(0, 0, 1);
     const o = camState.orbit;
@@ -1055,7 +1110,7 @@ function updateCamera(dt) {
 
 function setCamMode(m) {
   camState.mode = m;
-  for (let i = 0; i < 4; i++) {
+  for (let i = 0; i < CAM_COUNT; i++) {
     const b = $('cam-' + i);
     if (b) b.className = 'cam' + (i === m ? ' on' : '');
   }
@@ -1076,6 +1131,8 @@ function setCamMode(m) {
     else if (e.key === '1') setCamMode(CAMS.ROOM);
     else if (e.key === '2') setCamMode(CAMS.TOP);
     else if (e.key === '3') setCamMode(CAMS.ORBIT);
+    else if (e.key === '4') setCamMode(CAMS.FPV);
+    else if (e.key === '5') setCamMode(CAMS.TPS);
     else if (e.key === ' ') { e.preventDefault(); sendControl('toggle_pause'); }
     else if (e.key === 'r' || e.key === 'R') sendControl('reset');
     else if (e.key === '+' || e.key === '=') camState.chaseDist = clamp(camState.chaseDist * 0.8, 4, 900);
@@ -1102,11 +1159,11 @@ function setCamMode(m) {
   });
   cv.addEventListener('wheel', function (e) {
     e.preventDefault();
-    if (camState.mode === CAMS.CHASE) camState.chaseDist = clamp(camState.chaseDist * Math.exp(e.deltaY * 0.0012), 4, 900);
+    if (camState.mode === CAMS.CHASE || camState.mode === CAMS.TPS) camState.chaseDist = clamp(camState.chaseDist * Math.exp(e.deltaY * 0.0012), 4, 900);
     else if (camState.mode === CAMS.ORBIT) camState.orbit.radius = clamp(camState.orbit.radius * Math.exp(e.deltaY * 0.0012), 12, 340);
   }, { passive: false });
 
-  for (let i = 0; i < 4; i++) {
+  for (let i = 0; i < CAM_COUNT; i++) {
     const b = $('cam-' + i);
     if (b) b.addEventListener('click', function () { setCamMode(i); });
   }

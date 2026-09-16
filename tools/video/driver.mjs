@@ -10,7 +10,7 @@
 // the same frames. Nothing is dropped: the frame count is printed and every
 // write is checked.
 //
-// Usage: driver.mjs --run DIR --frames DIR --json META.json [--view chase|room|top|orbit]
+// Usage: driver.mjs --run DIR --frames DIR --json META.json [--view chase|room|top|orbit|fpv|tps]
 //                   [--fps 24] [--width 1600] [--height 900] [--time-scale 1.0]
 //                   [--cdp http://127.0.0.1:9333] [--url http://127.0.0.1:8137/index.html]
 
@@ -20,7 +20,10 @@ import { CDP, firstPageTarget } from './cdp.mjs';
 import { OVERLAY_JS } from './overlay.mjs';
 
 const MODES = ['GROUND', 'TAKEOFF', 'CRUISE', 'LANDING', 'FEEDING'];
-const VIEWS = { chase: 0, room: 1, top: 2, orbit: 3 };
+// View name -> `replay.setCam` mode (web/app.js CAMS). chase/room/top/orbit are
+// the original four; fpv and tps are the fly's own two views added for this
+// pipeline (first person at the fly's eyes, third person rigidly behind it).
+const VIEWS = { chase: 0, room: 1, top: 2, orbit: 3, fpv: 4, tps: 5 };
 
 function parseArgs(argv) {
   const a = {};

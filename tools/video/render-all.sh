@@ -6,7 +6,14 @@
 # Each row names a run directory on disk; a run that is missing or empty is
 # reported by fly2video.sh and does NOT abort the batch (its row prints FAIL).
 #
-# Usage: tools/video/render-all.sh [--jobs 3] [--out DIR] [--only NAME]
+# Usage: tools/video/render-all.sh [--jobs 3] [--out DIR] [--only NAME] [--set main|flyviews]
+#
+# --set main      (default) the standing set below, on the camera each row names.
+# --set flyviews  the same run directories on the fly's own two cameras: every
+#                 row in FIRST PERSON (`--view fpv`, the camera at the fly's own
+#                 eyes) plus a THIRD PERSON reference (`--view tps`) for the
+#                 default flight and the full-contact slap. Names get a `-fpv`
+#                 / `-tps` suffix and land beside the main set, not over it.
 #
 # The mapping is the same one documented in docs/videos/README.md.
 # Row format:  name | run dir | camera view | on-screen label
@@ -20,15 +27,19 @@ JOBS=3
 OUT="$REPO_ROOT/docs/videos"
 ONLY=""
 SKIP_EXISTING=0
+SET="main"
 while [ $# -gt 0 ]; do
   case "$1" in
     --jobs) JOBS="$2"; shift 2 ;;
     --out)  OUT="$2"; shift 2 ;;
     --only) ONLY="$2"; shift 2 ;;
+    --set)  SET="$2"; shift 2 ;;
     --skip-existing) SKIP_EXISTING=1; shift ;;
     *) echo "render-all: unknown argument: $1" >&2; exit 2 ;;
   esac
 done
+
+case "$SET" in main|flyviews) ;; *) echo "render-all: --set must be main|flyviews" >&2; exit 2 ;; esac
 
 FPS=24
 WIDTH=1600
@@ -59,6 +70,29 @@ EOF
 )
 
 mkdir -p "$OUT"
+
+# ---- --set flyviews: the same runs, on the fly's own two cameras -------------
+# Derived from the main list rather than written out a second time, so a run
+# directory can never drift between the two sets. One fpv row per *distinct run
+# directory* (the main set holds two rows for runs/analyze -- chase and room --
+# and first person is the same view for both, so the second is dropped), plus
+# two third-person reference rows. Names are suffixed so these land beside the
+# standing set instead of overwriting it.
+if [ "$SET" = "flyviews" ]; then
+  mapfile -t MAIN_ROWS <<< "$SPECS"
+  FLY_ROWS=()
+  seen_runs=""
+  for row in "${MAIN_ROWS[@]}"; do
+    [ -z "$row" ] && continue
+    IFS='|' read -r name rundir view label <<< "$row"
+    case ",$seen_runs," in *",$rundir,"*) continue ;; esac
+    seen_runs="$seen_runs,$rundir"
+    FLY_ROWS+=("$name-fpv|$rundir|fpv|$label -- fpv (FIRST PERSON: the camera is at the fly's own eyes)")
+  done
+  FLY_ROWS+=("default-flight-baseline-tps|runs/analyze|tps|repo default \"flyverse analyze\" output (runs/analyze): seed 7, 12 s, 1x room, --every 10 -- tps (THIRD PERSON: rigidly behind and above the fly)")
+  FLY_ROWS+=("hand-slap-seed7-tps|/tmp/fv/hand1x/s7_approach|tps|hand-slap test: FLYVERSE_HAND=approach (150 ms slap, default knobs), seed 7 at spawn: the full-contact slap, see docs/hand-slap-and-escape.md -- tps (THIRD PERSON: rigidly behind and above the fly)")
+  SPECS="$(printf '%s\n' "${FLY_ROWS[@]}")"
+fi
 
 run_one() {
   local name="$1" rundir="$2" view="$3" label="$4"
