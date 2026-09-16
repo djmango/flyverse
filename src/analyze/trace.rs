@@ -82,6 +82,30 @@ pub struct Sample {
     pub eats: u32,
     pub win_spikes: u32,
     pub tot_spikes: u64,
+    /// Distance from the body to the fruit's place, mm, horizontal. Measured
+    /// against the fruit's PLACE, so it is defined in the clear-room control
+    /// too, where nothing is rendered there and the two runs are only
+    /// comparable because the metric does not depend on the object existing.
+    pub fruit_dist: f32,
+    /// Signed bearing of that place relative to the body's horizontal heading,
+    /// radians: positive means it is to the LEFT (the body frame is x forward,
+    /// y left). This is what the turn-toward test is computed on.
+    pub fruit_az: f32,
+    /// Columns whose ray landed on the fruit this window, both eyes. Zero means
+    /// the optics did not see it, and a behavioural null is then uninformative
+    /// rather than negative.
+    pub fruit_cols: u32,
+    /// Mean luminance-channel (R1-R6) value the two eyes received.
+    pub lum_l: f32,
+    pub lum_r: f32,
+    /// Mean catch of the UV pair (R7 family, Rh3/Rh4) per eye.
+    pub uv_l: f32,
+    pub uv_r: f32,
+    /// Mean catch of the blue/green pair (R8 family, Rh5/Rh6) per eye. The
+    /// uv-minus-green difference is the chromatic signal the medulla has to
+    /// compare, and its left-minus-right difference is the lateral colour drive.
+    pub gr_l: f32,
+    pub gr_r: f32,
 }
 
 pub struct Options {
@@ -154,6 +178,8 @@ pub(crate) fn sample_of(w: &World) -> Sample {
         .min(w.room.x[1] - p[0])
         .min(p[1] - w.room.y[0])
         .min(w.room.y[1] - p[1]);
+    let (ml, mr) = w.retina.mean_lum_by_eye();
+    let (uv, gr) = w.retina.chroma_by_eye();
     Sample {
         t: w.step as f32 * DT_MS / 1000.0,
         x: p[0],
@@ -208,7 +234,41 @@ pub(crate) fn sample_of(w: &World) -> Sample {
         eats: b.eats,
         win_spikes: w.window_spikes.len() as u32,
         tot_spikes: w.lif.total_spikes,
+        fruit_dist: fruit_dist(w),
+        fruit_az: fruit_az(w),
+        fruit_cols: {
+            let (l, r) = w.retina.fruit_columns_by_eye();
+            (l + r) as u32
+        },
+        lum_l: ml,
+        lum_r: mr,
+        uv_l: uv[0],
+        uv_r: uv[1],
+        gr_l: gr[0],
+        gr_r: gr[1],
     }
+}
+
+/// Horizontal distance from the body to the fruit's place, mm.
+///
+/// Measured against `room::FRUIT.c`, the fruit's PLACE, not against
+/// `room.fruit`: the no-fruit control renders nothing there, and a metric that
+/// is undefined in the control cannot be compared with the treatment. The
+/// object's presence is recorded separately (the summary's `fruit.present`).
+pub(crate) fn fruit_dist(w: &World) -> f32 {
+    let d = crate::room::sub(w.body.pos, crate::room::FRUIT.c);
+    (d[0] * d[0] + d[1] * d[1]).sqrt()
+}
+
+/// Signed bearing of the fruit's place relative to the body's horizontal
+/// heading, rad. Positive = it is to the body's left (body frame: x forward,
+/// y left). Same reasoning as `fruit_dist`: defined in every configuration.
+pub(crate) fn fruit_az(w: &World) -> f32 {
+    let h = w.body.heading();
+    let v = crate::room::sub(crate::room::FRUIT.c, w.body.pos);
+    let cross = h[0] * v[1] - h[1] * v[0];
+    let dotv = h[0] * v[0] + h[1] * v[1];
+    cross.atan2(dotv)
 }
 
 /// Sub-slice helper: values of `s` where `keep(sample)` holds.

@@ -6,15 +6,57 @@
 
 pub type V3 = [f32; 3];
 
+/// A fruit in the room: a solid sphere with a reflectance spectrum.
+///
+/// It is a scene object and nothing else. The optics ray-cast against it exactly
+/// as they do against a wall, so it drives the photoreceptors of whatever
+/// columns are pointed at it -- which is the whole point, because that is how a
+/// real fruit reaches a real fly's brain. There is deliberately NO collision
+/// with it, no taste, no reward and no signal injected anywhere: whether the
+/// connectome does anything with the light from it is the question being asked,
+/// and it has to be the connectome's answer.
+#[derive(Clone, Copy)]
+pub struct Fruit {
+    /// Centre, mm, world frame.
+    pub c: V3,
+    /// Radius, mm.
+    pub r: f32,
+}
+
 pub const ROOM: Room = Room {
     x: [-300.0, 300.0],
     y: [-220.0, 220.0],
     z: [0.0, 220.0],
     table: Table { x: [40.0, 280.0], y: [-160.0, 120.0], top: 40.0, thickness: 12.0 },
+    fruit: Some(FRUIT),
+    fruit_grey: false,
     wind: [1.0, 0.0, 0.0],
     odor_amp: 1.0,
     odor_lambda: 95.0,
 };
+
+/// The fruit's resting place: on the table, 60 mm diameter, in the far corner
+/// from the sugar cube (`food_home` is (160, 40, 44)) so that the visual object
+/// and the odour source are two different places in the room and the two routes
+/// can be told apart.
+pub const FRUIT: Fruit = Fruit { c: [240.0, -130.0, 40.0 + 25.0], r: 25.0 };
+
+/// Is the fruit in the room? `FLYVERSE_NO_FRUIT=1` removes it, which is the
+/// clear-room control: same room, same odour field, same sugar cube, nothing
+/// coloured to look at.
+pub fn fruit_on() -> bool {
+    std::env::var("FLYVERSE_NO_FRUIT").is_err()
+}
+
+/// Is the fruit rendered spectrally flat instead of in colour?
+/// `FLYVERSE_FRUIT_GREY=1` gives it the reflectance that has the SAME
+/// luminance-channel (R1-R6/Rh1) catch as the real fruit, so the two differ
+/// only in colour. This is the control that separates "the fly responded to the
+/// fruit" from "the fly responded to colour": if the grey fruit produces the
+/// same behaviour, the response was luminance, not colour.
+pub fn fruit_grey() -> bool {
+    std::env::var("FLYVERSE_FRUIT_GREY").is_ok()
+}
 
 /// Horizontal scale factor for the arena: `FLYVERSE_ROOM_SCALE`, default 1.0.
 ///
@@ -60,7 +102,9 @@ pub fn room_height_mm() -> Option<f32> {
 pub fn active() -> Room {
     let s = room_scale();
     let h = room_height_mm().unwrap_or(ROOM.z[1] * s);
-    if s == 1.0 && h == ROOM.z[1] {
+    let fruit = if fruit_on() { Some(FRUIT) } else { None };
+    let grey = fruit_grey();
+    if s == 1.0 && h == ROOM.z[1] && fruit.is_some() && !grey {
         return ROOM;
     }
     Room {
@@ -68,6 +112,8 @@ pub fn active() -> Room {
         y: [ROOM.y[0] * s, ROOM.y[1] * s],
         z: [ROOM.z[0], h],
         table: ROOM.table,
+        fruit,
+        fruit_grey: grey,
         wind: ROOM.wind,
         odor_amp: ROOM.odor_amp,
         odor_lambda: ROOM.odor_lambda,
@@ -88,6 +134,12 @@ pub struct Room {
     pub y: [f32; 2],
     pub z: [f32; 2],
     pub table: Table,
+    /// The fruit, if one is in the room. `None` is the clear-room control
+    /// (`FLYVERSE_NO_FRUIT=1`).
+    pub fruit: Option<Fruit>,
+    /// Render the fruit spectrally flat instead of in colour
+    /// (`FLYVERSE_FRUIT_GREY=1`): the equi-luminant grey control.
+    pub fruit_grey: bool,
     /// Unit direction the room air drifts in.
     pub wind: V3,
     pub odor_amp: f32,
