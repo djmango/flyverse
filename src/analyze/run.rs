@@ -43,10 +43,18 @@ pub fn run(pack: &Path, o: &Options) -> Result<()> {
     );
 
     let mut samples: Vec<Sample> = Vec::with_capacity((total_windows / stride + 2) as usize);
+    // The hand's own trace, only when there is a hand in the room. Kept out of
+    // `Sample` so `trace.csv` keeps its schema and a run with no hand is
+    // byte-identical to the pre-hand build.
+    let mut hand_samples: Vec<super::hand::HandSample> =
+        Vec::with_capacity((total_windows / stride + 2) as usize);
     for k in 0..total_windows {
         w.advance();
         if k % stride == 0 {
             samples.push(sample_of(&w));
+            if let Some(hs) = super::hand::sample_of_hand(&w) {
+                hand_samples.push(hs);
+            }
         }
         if total_windows >= 20_000 && k % (total_windows / 10).max(1) == 0 {
             print!(
@@ -59,6 +67,9 @@ pub fn run(pack: &Path, o: &Options) -> Result<()> {
         }
     }
     samples.push(sample_of(&w));
+    if let Some(hs) = super::hand::sample_of_hand(&w) {
+        hand_samples.push(hs);
+    }
     let wall_seconds = t_wall0.elapsed().as_secs_f64();
     let sim_seconds = w.step as f64 * DT_MS as f64 / 1000.0;
     println!(
@@ -69,11 +80,35 @@ pub fn run(pack: &Path, o: &Options) -> Result<()> {
         sim_seconds / wall_seconds
     );
 
-    let summary = summarize(&samples, &w, sim_seconds, wall_seconds, o);
+    // The hand's block: the retinal/loom delivery check and the escape
+    // measurement, both from the run that just happened. `None` when no hand was
+    // in the room, which is the case that leaves the summary byte-identical.
+    let hand_block = w
+        .hand_traj
+        .filter(|_| !hand_samples.is_empty())
+        .map(|t| {
+            let mut v = super::hand::analyze(&hand_samples, &t);
+            // The trajectory as it actually ran -- the aim point is re-taken at
+            // launch, so the run output is the only place the flown geometry is
+            // exact.
+            v["trajectory"] = super::hand::aim_block(&w);
+            v
+        });
+
+    let summary = summarize(&samples, &w, sim_seconds, wall_seconds, o, hand_block);
     std::fs::create_dir_all(&o.out)?;
     write_csv(&o.out.join("trace.csv"), &samples)?;
     std::fs::write(o.out.join("summary.json"), serde_json::to_string_pretty(&summary)?)?;
     write_report(&o.out.join("report.html"), &samples, &summary)?;
+    if let Some(h) = summary.get("hand") {
+        super::hand::write_csv(&o.out.join("hand.csv"), &hand_samples)?;
+        std::fs::write(o.out.join("hand.json"), serde_json::to_string_pretty(h)?)?;
+        println!("\n{}", super::hand::headline(h));
+        println!(
+            "\nwrote {}/hand.csv, hand.json",
+            o.out.display()
+        );
+    }
 
     println!("\n{}", headline(&summary));
     println!("\nwrote {}/trace.csv, summary.json, report.html", o.out.display());

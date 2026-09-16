@@ -17,6 +17,7 @@
 
 mod attractor;
 mod flight;
+mod hand;
 mod loom;
 mod mn_audit;
 mod probe;

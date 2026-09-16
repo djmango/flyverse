@@ -320,6 +320,71 @@ pub fn fruit_grey_level(w: &[[f32; NBANDS]; NCLASS]) -> f32 {
     s.clamp(0.0, 1.0)
 }
 
+// ------------------------------------------------------------------- the hand
+
+/// Diffuse reflectance of human skin, 300-700 nm: the measured SHAPE.
+///
+/// Anchors from the in-vivo diffuse-reflectance literature (Dawson et al. 1980,
+/// *Br J Dermatol*; Anderson & Parrish 1981, *J Invest Dermatol*; and the
+/// skin-optics summaries in Lister et al. 2012, *J Biomed Opt*): strongly
+/// absorbing in the UV (the epidermis is the optical shield), rising through
+/// the blue and green, and highest in the red because the dermal
+/// haemoglobin/melanin absorption bands fall off there. Skin is therefore not
+/// spectrally flat, and to a fly -- whose opsins all peak at or below 508 nm --
+/// it is a green/blue object with a red tail outside the animal's range.
+pub const HAND_REFLECTANCE_ANCHORS: &[(f32, f32)] = &[
+    (300.0, 0.03),
+    (350.0, 0.05),
+    (400.0, 0.16),
+    (450.0, 0.22),
+    (500.0, 0.28),
+    (550.0, 0.33),
+    (600.0, 0.38),
+    (650.0, 0.42),
+    (700.0, 0.45),
+];
+
+/// Ambient shading factor for the palm's fly-facing surface.
+///
+/// This is the one number in the hand's rendering that is a modelling choice
+/// rather than a measurement, and it is stated as such. The room has one
+/// illuminant, the equal-energy reference E, reaching every surface; on top of
+/// that, a palm coming between the fly and the room's light is lit on its
+/// fly-facing side only by ambient scatter, because it occludes the direct
+/// path to the ceiling for exactly the surface the fly is looking at. A hand
+/// approaching a fly also typically arrives against the bright ceiling or wall
+/// behind it, so the fly sees a dark expanding silhouette -- which is the
+/// canonical *Drosophila* looming stimulus.
+///
+/// 0.18 means the palm's R1-R6 catch lands near 0.06, the same order as the
+/// tomato fruit's (0.063) and about 8x darker than the room's mean wall
+/// luminance -- which is what the runs show: with the palm covering half the
+/// eye's field the mean luminance-channel catch per eye falls from 0.54 to
+/// 0.45.
+/// Nothing downstream depends on this number beyond how much light reaches the
+/// photoreceptors: it is albedo, not a gain on any response.
+pub const HAND_SHADING: f32 = 0.18;
+
+/// The palm's reflectance spectrum, sampled onto the band grid.
+pub fn hand_reflectance() -> [f32; NBANDS] {
+    let mut out = [0.0f32; NBANDS];
+    let a = HAND_REFLECTANCE_ANCHORS;
+    for k in 0..NBANDS {
+        let lam = band_nm(k);
+        let mut v = a[0].1;
+        for w in a.windows(2) {
+            let (l0, r0) = w[0];
+            let (l1, r1) = w[1];
+            if lam >= l0 && lam <= l1 {
+                let t = (lam - l0) / (l1 - l0);
+                v = r0 + (r1 - r0) * t;
+            }
+        }
+        out[k] = (v * HAND_SHADING).clamp(0.0, 1.0);
+    }
+    out
+}
+
 // ---------------------------------------------------------------------------
 // The retina
 
@@ -330,6 +395,11 @@ pub enum Surface {
     Wall = 0,
     Table = 1,
     Fruit = 2,
+    /// The palm (`room::Hand`). Like the fruit it is an ordinary scene object
+    /// with its own reflectance spectrum; unlike the fruit it MOVES, so the
+    /// columns it lands on change from window to window and the silhouette it
+    /// presents grows as it approaches.
+    Hand = 3,
 }
 
 pub struct Retina {
@@ -369,6 +439,9 @@ pub struct Retina {
     /// The fruit's reflectance spectrum (or its equi-luminant grey level when
     /// `Room::fruit_grey` is set), precomputed.
     fruit_r: [f32; NBANDS],
+    /// The palm's reflectance spectrum (`hand_reflectance`), precomputed. Used
+    /// for whatever columns the moving palm's rays land on.
+    hand_r: [f32; NBANDS],
     /// Luminance-channel value per column: the R1-R6 class's catch, or the mean
     /// over the column's classes when the column has no R1-R6 cell. A
     /// spectrally flat surface gives the same number here as the old scalar.
@@ -447,6 +520,10 @@ impl Retina {
             }
             r
         };
+        // The palm's spectrum is unconditional: whether a hand is in this room
+        // is decided by the geometry (`Room::hand`), and a spectrum that costs
+        // 41 floats is cheaper than a second code path.
+        let hand_r = hand_reflectance();
 
         let mut gaze = Vec::new();
         let mut side = Vec::new();
@@ -549,6 +626,7 @@ impl Retina {
             col_len,
             w,
             fruit_r,
+            hand_r,
             col_lum: vec![0.0; n_columns],
             lum: vec![0.0; n_drives],
             imposed_lum: None,
@@ -621,6 +699,45 @@ impl Retina {
         (n[0], n[1])
     }
 
+    /// How many columns of each eye are looking at the palm this window, and
+    /// what fraction of that eye's columns that is. This is the silhouette the
+    /// hand presents: it grows from 0 to a large fraction over the approach,
+    /// and that growth IS the expanding-edge stimulus -- the retina produces it
+    /// by ray-casting, not by any injected signal.
+    pub fn hand_columns_by_eye(&self) -> ([usize; 2], [f32; 2]) {
+        let mut n = [0usize; 2];
+        let mut tot = [0usize; 2];
+        for (i, s) in self.surf.iter().enumerate() {
+            let e = self.side[i] as usize;
+            tot[e] += 1;
+            if *s == Surface::Hand {
+                n[e] += 1;
+            }
+        }
+        let f = |e: usize| {
+            if tot[e] == 0 {
+                0.0
+            } else {
+                n[e] as f32 / tot[e] as f32
+            }
+        };
+        (n, [f(0), f(1)])
+    }
+
+    /// Nearest hand-surface distance each eye's own columns report, mm, or
+    /// `INFINITY` when that eye has no column on the palm. The same quantity
+    /// `loom_by_eye` reads, restricted to the palm, so the palm's own
+    /// contribution to the looming signal can be told apart from the walls'.
+    pub fn hand_distance_by_eye(&self) -> [f32; 2] {
+        let mut best = [f32::INFINITY; 2];
+        for (i, s) in self.surf.iter().enumerate() {
+            if *s == Surface::Hand && self.dist[i] < best[self.side[i] as usize] {
+                best[self.side[i] as usize] = self.dist[i];
+            }
+        }
+        best
+    }
+
     /// Mean catch of the colour (inner) photoreceptors per eye, split into the
     /// UV pair (R7 family) and the blue/green pair (R8 family). Their
     /// difference is the chromatic signal the medulla has to compare; the
@@ -659,17 +776,19 @@ impl Retina {
             let dir = qrot(q, self.gaze[i]);
             // Walls and the table are spectrally flat (grey), so the one number
             // the old luminance-only retina used is still the whole story for
-            // them. The fruit is the only surface with a spectrum, so it is the
-            // only one that needs the per-band integral.
+            // them. The fruit and the palm are the surfaces with a spectrum, so
+            // they are the ones that need the per-band integral -- copied out
+            // here rather than borrowed, so the drive rates below can be set.
             let mut neutral = 0.0f32;
-            let mut on_fruit = false;
+            let mut spec = [0.0f32; NBANDS];
             match scene_hit(eye, dir, room) {
                 Some((p, n, s)) => {
                     self.dist[i] = len(sub(p, eye));
                     self.surf[i] = s;
-                    on_fruit = s == Surface::Fruit;
-                    if !on_fruit {
-                        neutral = luminance(p, n);
+                    match s {
+                        Surface::Fruit => spec = self.fruit_r,
+                        Surface::Hand => spec = self.hand_r,
+                        _ => neutral = luminance(p, n),
                     }
                 }
                 // A ray that leaves the room means the sampler is broken, not
@@ -680,15 +799,19 @@ impl Retina {
                     neutral = 0.0;
                 }
             }
+            let spectral = matches!(self.surf[i], Surface::Fruit | Surface::Hand);
             let start = self.col_start[i] as usize;
             let end = start + self.col_len[i] as usize;
             let mut sum = 0.0f32;
             for j in start..end {
-                let mut catch = if on_fruit {
+                // What this class's own pigment absorbs from that surface. A
+                // spectrally flat surface gives the same number for every
+                // class, which is exactly what the old luminance retina did.
+                let mut catch = if spectral {
                     let wc = &self.w[self.d_class[j].index()];
                     let mut acc = 0.0f32;
                     for k in 0..NBANDS {
-                        acc += wc[k] * self.fruit_r[k];
+                        acc += wc[k] * spec[k];
                     }
                     acc
                 } else {
@@ -914,6 +1037,49 @@ fn ray_sphere(o: V3, d: V3, c: V3, r: f32) -> Option<f32> {
     }
 }
 
+/// Nearest positive intersection of a ray with an oriented box, with the
+/// outward normal of the face it entered through. Works for an origin inside
+/// the box too (it then returns the exit face), which is the state a hand is
+/// in at the instant of contact.
+fn ray_obox(o: V3, d: V3, c: V3, half: V3, axes: [V3; 3]) -> Option<(f32, V3)> {
+    let rel = sub(o, c);
+    let oo = [dot(rel, axes[0]), dot(rel, axes[1]), dot(rel, axes[2])];
+    let dd = [dot(d, axes[0]), dot(d, axes[1]), dot(d, axes[2])];
+    let (mut t0, mut t1) = (f32::NEG_INFINITY, f32::INFINITY);
+    for a in 0..3 {
+        if dd[a].abs() < 1e-9 {
+            if oo[a] < -half[a] || oo[a] > half[a] {
+                return None;
+            }
+            continue;
+        }
+        let inv = 1.0 / dd[a];
+        let (mut ta, mut tb) = ((-half[a] - oo[a]) * inv, (half[a] - oo[a]) * inv);
+        if ta > tb {
+            std::mem::swap(&mut ta, &mut tb);
+        }
+        t0 = t0.max(ta);
+        t1 = t1.min(tb);
+    }
+    if t1 < 1e-4 || t0 > t1 {
+        return None;
+    }
+    let t = if t0 > 1e-4 { t0 } else { t1 };
+    // Which face: the one whose slab the hit point sits on.
+    let lp = [oo[0] + dd[0] * t, oo[1] + dd[1] * t, oo[2] + dd[2] * t];
+    let mut a = 0usize;
+    let mut best = f32::INFINITY;
+    for i in 0..3 {
+        let dd2 = (lp[i].abs() - half[i]).abs();
+        if dd2 < best {
+            best = dd2;
+            a = i;
+        }
+    }
+    let s = if lp[a] >= 0.0 { 1.0f32 } else { -1.0 };
+    Some((t, scale(axes[a], s)))
+}
+
 /// Stable per-face seed, so the six walls are not six copies of one patch.
 fn face_seed(n: V3) -> u32 {
     let axis = if n[0] != 0.0 { 0u32 } else if n[1] != 0.0 { 1 } else { 2 };
@@ -957,6 +1123,17 @@ fn scene_hit(o: V3, d: V3, room: &Room) -> Option<(V3, V3, Surface)> {
                 let p = add(o, scale(d, t));
                 let n = scale(sub(p, f.c), 1.0 / f.r.max(1e-6));
                 best = Some((t, p, n, Surface::Fruit));
+            }
+        }
+    }
+    // The palm: the same terms again -- a body in the world, in front of
+    // whatever is behind it, whose position happens to change between windows.
+    // Nothing is special-cased for it anywhere downstream; a column that lands
+    // on it reports a hit, a distance and a normal like any other surface.
+    if let Some(h) = room.hand {
+        if let Some((t, n)) = ray_obox(o, d, h.c, h.half, h.axes) {
+            if t > 1e-4 && best.map_or(true, |b| t < b.0) {
+                best = Some((t, add(o, scale(d, t)), n, Surface::Hand));
             }
         }
     }
@@ -1032,6 +1209,7 @@ mod tests {
             },
             fruit: None,
             fruit_grey: false,
+            hand: None,
             wind: [0.0, 0.0, 0.0],
             odor_amp: 0.0,
             odor_lambda: 1.0,

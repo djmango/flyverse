@@ -332,6 +332,19 @@ pub struct World {
     pub mn_cells: u32,
     /// Their model indices, ascending.
     pub mn_members: Vec<u32>,
+    /// The hand's trajectory, or `None` when no hand is in the room (the
+    /// default). The hand is an ordinary scene object: `advance` re-places it
+    /// from this trajectory before the retina samples the room, and nothing
+    /// else in the model knows it exists. `FLYVERSE_HAND=approach|static`.
+    pub hand_traj: Option<room::HandTraj>,
+    /// The palm's state in the window that was just sampled -- the position the
+    /// optics actually saw, so telemetry is exact rather than reconstructed
+    /// one window out of step.
+    pub hand_used: Option<room::Hand>,
+    /// The aim point the trajectory was launched with, and the sim time at which
+    /// it was taken (ms). `None` until the launch instant, and always `None` for
+    /// a static hand, which never launches.
+    pub hand_aim: Option<(V3, f32, V3)>,
 
     // Sensory drive channels; rates are per-neuron Hz.
     d_vnc: Drive,
@@ -442,6 +455,10 @@ impl World {
 
         let room = room::active();
         let food = room.food_home();
+        // The hand's trajectory: `None` unless `FLYVERSE_HAND` says otherwise,
+        // in which case it is the same trajectory `room::active()` placed the
+        // palm from.
+        let hand_traj = room::active_hand();
         eprintln!(
             "[flyverse] arena: {:.0} x {:.0} x {:.0} mm (x {:.0}..{:.0}, y {:.0}..{:.0}, z {:.0}..{:.0}); \
              FLYVERSE_ROOM_SCALE={} FLYVERSE_ROOM_HEIGHT={}",
@@ -459,7 +476,7 @@ impl World {
         );
         let mut body = Body::new();
         body.reset();
-        body.pos = [-220.0, -150.0, 0.0];
+        body.pos = room::SPAWN;
         body.set_yaw(0.6);
 
         // The visual front end. Missing asset is a hard error for the same
@@ -509,6 +526,24 @@ impl World {
                 "[flyverse] fruit: ABSENT (FLYVERSE_NO_FRUIT) -- clear-room control"
             ),
         }
+        match hand_traj {
+            Some(t) => eprintln!(
+                "[flyverse] hand: {} -- a scene object like the walls and the fruit, with an \
+                 oriented-box palm and a skin reflectance at shading {:.2} (R1-R6 catch {:.3}). \
+                 No escape reflex, no avoidance gradient, no loom scalar is injected anywhere: \
+                 the optics ray-cast against it and the connectome does whatever it does.",
+                t.describe(),
+                vision::HAND_SHADING,
+                {
+                    let r = vision::hand_reflectance();
+                    let wc = retina.weights()[vision::Spectral::R16.index()];
+                    (0..vision::NBANDS).map(|k| wc[k] * r[k]).sum::<f32>()
+                },
+            ),
+            None => eprintln!(
+                "[flyverse] hand: ABSENT (FLYVERSE_HAND unset) -- no such object in the room"
+            ),
+        }
 
         Ok(World {
             o_pow_l: Out::new(&groups, "motor_flight_power_left"),
@@ -553,6 +588,9 @@ impl World {
             mn_gain,
             mn_cells,
             mn_members,
+            hand_traj,
+            hand_used: room.hand,
+            hand_aim: None,
             vnc_targets,
             vnc_hz,
             mech_groups: mech,
@@ -594,6 +632,30 @@ impl World {
     /// Advance one 2 ms control window: sense, step the connectome, read out,
     /// integrate the body.
     pub fn advance(&mut self) {
+        // Where the hand is for THIS window, before anything samples the room.
+        // This is the whole of the hand's coupling to the model: one scene
+        // object moved along a trajectory. Nothing is written to any drive.
+        let now = self.step as f32 * crate::lif::DT_MS / 1000.0;
+        if let Some(mut tr) = self.hand_traj {
+            // Launch: once, at `start_s`, the aim point is re-taken to where the
+            // fly is. A slap is aimed at the fly, and at the launch instant the
+            // fly is not where it spawned -- at 2 s one seed is still on the
+            // spawn, another is in mid-air near the far wall, a third is on that
+            // wall. This is a property of the STIMULUS (where the hand goes),
+            // taken once and with no later feedback: the hand does not chase.
+            if tr.approaching && self.hand_aim.is_none() && now >= tr.start_s {
+                if room::hand_aim_at_fly() {
+                    tr.target = self.body.pos;
+                    tr.aimed_at_fly = true;
+                }
+                self.hand_aim = Some((tr.target, now * 1000.0, self.body.pos));
+                self.hand_traj = Some(tr);
+            }
+            self.hand_used = Some(tr.hand_at(now));
+        } else {
+            self.hand_used = None;
+        }
+        self.room.hand = self.hand_used;
         self.sense();
 
         self.window_spikes.clear();
@@ -896,6 +958,22 @@ impl World {
             let l = self.loom();
             (l, l)
         }
+    }
+
+    /// The loom the two `visual_loom` drives were actually given this window,
+    /// per eye, 0..1. What the closed loop delivered, not what it would have
+    /// delivered: the retinotopic pair when that path is on, the scalar twice
+    /// otherwise, and the imposed pair when a probe has taken the channel over.
+    pub fn loom_pair(&self) -> (f32, f32) {
+        (
+            self.d_loom_l.rate_hz as f32 / 60.0,
+            self.d_loom_r.rate_hz as f32 / 60.0,
+        )
+    }
+
+    /// The palm as the optics saw it this window, if there is one.
+    pub fn hand(&self) -> Option<room::Hand> {
+        self.hand_used
     }
 
     /// Current sensory drive snapshot. This is the entire interface between the
